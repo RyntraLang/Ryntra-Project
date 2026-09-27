@@ -92,10 +92,10 @@ namespace Ryntra::VM {
                 }
             }
             int32_t poolIdx = addConstant(val);
-            currentFunction_->addInstruction(OpCode::LoadConst, poolIdx);
+            emit(OpCode::LoadConst, poolIdx);
         } else if (auto arg = std::dynamic_pointer_cast<IR::Argument>(operand)) {
             // A function parameter lives in the frame's argument slot.
-            currentFunction_->addInstruction(OpCode::LoadLocal, arg->getIndex());
+            emit(OpCode::LoadLocal, arg->getIndex());
         } else if (auto argInst = std::dynamic_pointer_cast<IR::Instruction>(operand)) {
             if (argInst->getOpcode() == IR::Instruction::Opcode::Alloca) {
                 // Materialize the address of a local slot. For struct locals the
@@ -107,11 +107,11 @@ namespace Ryntra::VM {
                         isStructLocal = ptrType->getElementType()->isStruct();
 
                     if (isStructLocal) {
-                        currentFunction_->addInstruction(OpCode::LoadLocal, it->second);
+                        emit(OpCode::LoadLocal, it->second);
                     } else {
-                        currentFunction_->addInstruction(
+                        emit(
                             OpCode::LoadConst, addConstant(VMValue(it->second)));
-                        currentFunction_->addInstruction(OpCode::PtrCreate, 0);
+                        emit(OpCode::PtrCreate, 0);
                     }
                 }
             } else if (argInst->getOpcode() == IR::Instruction::Opcode::Constant) {
@@ -121,13 +121,21 @@ namespace Ryntra::VM {
             } else {
                 auto it = instructionSlots_.find(argInst.get());
                 if (it != instructionSlots_.end()) {
-                    currentFunction_->addInstruction(OpCode::LoadLocal, it->second);
+                    emit(OpCode::LoadLocal, it->second);
                 }
             }
         }
     }
 
+    void BytecodeGenerator::emit(OpCode op, int32_t operand) {
+        if (!currentFunction_)
+            return;
+        currentFunction_->addInstruction(op, operand);
+        currentFunction_->instructions.back().range = currentRange_;
+    }
+
     void BytecodeGenerator::generateInstruction(const std::shared_ptr<IR::Instruction> &inst) {
+        currentRange_ = inst->getSourceRange();
         const auto &operands = inst->getOperands();
 
         // Assign a local slot for instructions that produce a runtime value.
@@ -158,7 +166,7 @@ namespace Ryntra::VM {
                         val = VMValue(std::get<std::string>(constant->getValue()));
                     }
                     int32_t poolIdx = addConstant(val);
-                    currentFunction_->addInstruction(OpCode::LoadConst, poolIdx);
+                    emit(OpCode::LoadConst, poolIdx);
                 }
             }
             break;
@@ -180,14 +188,14 @@ namespace Ryntra::VM {
                             pushOperandValue(operands[i]);
                         }
                         int32_t builtinIdx = getBuiltinIndex(name);
-                        currentFunction_->addInstruction(OpCode::BCall, builtinIdx);
+                        emit(OpCode::BCall, builtinIdx);
                     } else {
                         // Push arguments for user-defined function calls
                         for (size_t i = 1; i < operands.size(); ++i) {
                             pushOperandValue(operands[i]);
                         }
                         int32_t funcIdx = getFunctionIndex(name);
-                        currentFunction_->addInstruction(OpCode::Call, funcIdx);
+                        emit(OpCode::Call, funcIdx);
                     }
                 }
             }
@@ -199,7 +207,7 @@ namespace Ryntra::VM {
                 auto func = std::dynamic_pointer_cast<IR::Function>(operands[0]);
                 if (func) {
                     int32_t funcIdx = getFunctionIndex(func->getName());
-                    currentFunction_->addInstruction(OpCode::LoadFunc, funcIdx);
+                    emit(OpCode::LoadFunc, funcIdx);
                 }
             }
             break;
@@ -212,7 +220,7 @@ namespace Ryntra::VM {
                 pushOperandValue(operands[i]);
             }
             pushOperandValue(operands[0]);
-            currentFunction_->addInstruction(OpCode::ICall, 0);
+            emit(OpCode::ICall, 0);
             break;
         }
 
@@ -220,7 +228,7 @@ namespace Ryntra::VM {
             if (!operands.empty()) {
                 pushOperandValue(operands[0]);
             }
-            currentFunction_->addInstruction(OpCode::Return);
+            emit(OpCode::Return);
             break;
         }
 
@@ -228,7 +236,7 @@ namespace Ryntra::VM {
             for (const auto &op : operands) {
                 pushOperandValue(op);
             }
-            currentFunction_->addInstruction(OpCode::SExt);
+            emit(OpCode::SExt);
             break;
         }
 
@@ -236,7 +244,7 @@ namespace Ryntra::VM {
             for (const auto &op : operands) {
                 pushOperandValue(op);
             }
-            currentFunction_->addInstruction(OpCode::Trunc);
+            emit(OpCode::Trunc);
             break;
         }
 
@@ -259,7 +267,7 @@ namespace Ryntra::VM {
             case IR::Instruction::Opcode::Ge: bcOp = OpCode::Ge; break;
             default: bcOp = OpCode::Eq; break;
             }
-            currentFunction_->addInstruction(bcOp);
+            emit(bcOp);
             break;
         }
 
@@ -270,7 +278,7 @@ namespace Ryntra::VM {
                 pushOperandValue(op);
             }
             OpCode bcOp = (inst->getOpcode() == IR::Instruction::Opcode::LogicalNot) ? OpCode::LogicalNot : OpCode::BitNot;
-            currentFunction_->addInstruction(bcOp);
+            emit(bcOp);
             break;
         }
 
@@ -323,7 +331,7 @@ namespace Ryntra::VM {
                 bcOp = OpCode::Add;
                 break;
             }
-            currentFunction_->addInstruction(bcOp);
+            emit(bcOp);
             break;
         }
 
@@ -335,9 +343,9 @@ namespace Ryntra::VM {
             // accesses have backing storage.
             if (auto ptrType = std::dynamic_pointer_cast<IR::PtrType>(inst->getType())) {
                 if (auto structType = std::dynamic_pointer_cast<IR::StructType>(ptrType->getElementType())) {
-                    currentFunction_->addInstruction(
+                    emit(
                         OpCode::NewStruct, static_cast<int32_t>(structType->getFields().size()));
-                    currentFunction_->addInstruction(OpCode::StoreLocal, slotNum);
+                    emit(OpCode::StoreLocal, slotNum);
                 }
             }
             break;
@@ -347,7 +355,7 @@ namespace Ryntra::VM {
             // operands[0] = pointer to the storage
             if (!operands.empty()) {
                 pushOperandValue(operands[0]);
-                currentFunction_->addInstruction(OpCode::PtrLoad, 0);
+                emit(OpCode::PtrLoad, 0);
             }
             break;
         }
@@ -358,7 +366,7 @@ namespace Ryntra::VM {
             if (operands.size() >= 2) {
                 pushOperandValue(operands[1]);
                 pushOperandValue(operands[0]);
-                currentFunction_->addInstruction(OpCode::PtrStore, 0);
+                emit(OpCode::PtrStore, 0);
             }
             break;
         }
@@ -366,7 +374,7 @@ namespace Ryntra::VM {
         case IR::Instruction::Opcode::Br: {
             auto targetName = std::dynamic_pointer_cast<IR::ImmediateValue>(operands[0])->getLiteralValue();
             size_t instIdx = currentFunction_->instructions.size();
-            currentFunction_->addInstruction(OpCode::Jmp, 0);
+            emit(OpCode::Jmp, 0);
             fixups_.push_back({instIdx, targetName});
             break;
         }
@@ -375,11 +383,11 @@ namespace Ryntra::VM {
             pushOperandValue(operands[0]);
             auto falseName = std::dynamic_pointer_cast<IR::ImmediateValue>(operands[2])->getLiteralValue();
             size_t jzIdx = currentFunction_->instructions.size();
-            currentFunction_->addInstruction(OpCode::Jz, 0);
+            emit(OpCode::Jz, 0);
             fixups_.push_back({jzIdx, falseName});
             auto trueName = std::dynamic_pointer_cast<IR::ImmediateValue>(operands[1])->getLiteralValue();
             size_t jmpIdx = currentFunction_->instructions.size();
-            currentFunction_->addInstruction(OpCode::Jmp, 0);
+            emit(OpCode::Jmp, 0);
             fixups_.push_back({jmpIdx, trueName});
             break;
         }
@@ -387,7 +395,7 @@ namespace Ryntra::VM {
         case IR::Instruction::Opcode::NewArray: {
             // operands[0] = size value
             pushOperandValue(operands[0]);
-            currentFunction_->addInstruction(OpCode::NewArray, 0);
+            emit(OpCode::NewArray, 0);
             break;
         }
 
@@ -395,7 +403,7 @@ namespace Ryntra::VM {
             // operands[0] = array, operands[1] = index
             pushOperandValue(operands[0]);
             pushOperandValue(operands[1]);
-            currentFunction_->addInstruction(OpCode::ArrGet, 0);
+            emit(OpCode::ArrGet, 0);
             break;
         }
 
@@ -404,7 +412,7 @@ namespace Ryntra::VM {
             pushOperandValue(operands[0]);
             pushOperandValue(operands[1]);
             pushOperandValue(operands[2]);
-            currentFunction_->addInstruction(OpCode::ArrSet, 0);
+            emit(OpCode::ArrSet, 0);
             break;
         }
 
@@ -414,8 +422,8 @@ namespace Ryntra::VM {
             if (allocaInst) {
                 int32_t slotNum = allocaSlotMap_[allocaInst.get()];
                 // Push the slot index as a constant, then create ref
-                currentFunction_->addInstruction(OpCode::LoadConst, addConstant(VMValue(slotNum)));
-                currentFunction_->addInstruction(OpCode::RefCreate, 0);
+                emit(OpCode::LoadConst, addConstant(VMValue(slotNum)));
+                emit(OpCode::RefCreate, 0);
             }
             break;
         }
@@ -423,7 +431,7 @@ namespace Ryntra::VM {
         case IR::Instruction::Opcode::RefLoad: {
             // operands[0] = ref value
             pushOperandValue(operands[0]);
-            currentFunction_->addInstruction(OpCode::RefLoad, 0);
+            emit(OpCode::RefLoad, 0);
             break;
         }
 
@@ -431,7 +439,7 @@ namespace Ryntra::VM {
             // operands[0] = ref value, operands[1] = value to store
             pushOperandValue(operands[0]);
             pushOperandValue(operands[1]);
-            currentFunction_->addInstruction(OpCode::RefStore, 0);
+            emit(OpCode::RefStore, 0);
             break;
         }
 
@@ -441,12 +449,12 @@ namespace Ryntra::VM {
             if (allocaInst && allocaSlotMap_.count(allocaInst.get())) {
                 // alloca operand: emit the slot index directly
                 int32_t slotNum = allocaSlotMap_[allocaInst.get()];
-                currentFunction_->addInstruction(OpCode::LoadConst, addConstant(VMValue(slotNum)));
-                currentFunction_->addInstruction(OpCode::PtrCreate, 0);
+                emit(OpCode::LoadConst, addConstant(VMValue(slotNum)));
+                emit(OpCode::PtrCreate, 0);
             } else {
                 // computed slot value: push it, then call PtrCreate
                 pushOperandValue(operands[0]);
-                currentFunction_->addInstruction(OpCode::PtrCreate, 0);
+                emit(OpCode::PtrCreate, 0);
             }
             break;
         }
@@ -454,14 +462,14 @@ namespace Ryntra::VM {
         case IR::Instruction::Opcode::NewHeap: {
             // operands[0] = initializer value
             pushOperandValue(operands[0]);
-            currentFunction_->addInstruction(OpCode::New, 0);
+            emit(OpCode::New, 0);
             break;
         }
 
         case IR::Instruction::Opcode::DeleteHeap: {
             // operands[0] = pointer value (heap pointer)
             pushOperandValue(operands[0]);
-            currentFunction_->addInstruction(OpCode::Delete, 0);
+            emit(OpCode::Delete, 0);
             break;
         }
 
@@ -469,7 +477,7 @@ namespace Ryntra::VM {
             // operands[0] = array, operands[1] = index
             pushOperandValue(operands[0]);
             pushOperandValue(operands[1]);
-            currentFunction_->addInstruction(OpCode::ArrRef, 0);
+            emit(OpCode::ArrRef, 0);
             break;
         }
 
@@ -477,28 +485,28 @@ namespace Ryntra::VM {
             // operands[0] = ptr, operands[1] = index
             pushOperandValue(operands[0]);
             pushOperandValue(operands[1]);
-            currentFunction_->addInstruction(OpCode::PtrIndexRef, 0);
+            emit(OpCode::PtrIndexRef, 0);
             break;
         }
 
         case IR::Instruction::Opcode::PinArray: {
             // operands[0] = pointer value
             pushOperandValue(operands[0]);
-            currentFunction_->addInstruction(OpCode::PinArray, 0);
+            emit(OpCode::PinArray, 0);
             break;
         }
 
         case IR::Instruction::Opcode::UnpinArray: {
             // operands[0] = pointer value
             pushOperandValue(operands[0]);
-            currentFunction_->addInstruction(OpCode::UnpinArray, 0);
+            emit(OpCode::UnpinArray, 0);
             break;
         }
 
         case IR::Instruction::Opcode::PtrFromArray: {
             // operands[0] = array value
             pushOperandValue(operands[0]);
-            currentFunction_->addInstruction(OpCode::PtrFromArray, 0);
+            emit(OpCode::PtrFromArray, 0);
             break;
         }
 
@@ -511,7 +519,7 @@ namespace Ryntra::VM {
             }
             if (!operands.empty()) {
                 pushOperandValue(operands[0]);
-                currentFunction_->addInstruction(OpCode::FieldRef, fieldIndex);
+                emit(OpCode::FieldRef, fieldIndex);
             }
             break;
         }
@@ -521,7 +529,7 @@ namespace Ryntra::VM {
         }
 
         if (slot >= 0) {
-            currentFunction_->addInstruction(OpCode::StoreLocal, slot);
+            emit(OpCode::StoreLocal, slot);
         }
     }
 

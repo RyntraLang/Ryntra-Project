@@ -60,10 +60,13 @@ namespace Ryntra::IR {
         auto it = allocaMap_.find(node.getName());
         if (it != allocaMap_.end()) {
             auto loadType = toIRType(node.getType());
-            lastValue_ = builder_.createLoad(
+            auto loadInst = builder_.createLoad(
                 builder_.generateUniqueName(""),
                 it->second,
                 loadType);
+            if (loadInst)
+                loadInst->setSourceRange(node.getRange());
+            lastValue_ = loadInst;
         } else {
             lastValue_ = nullptr;
         }
@@ -98,8 +101,11 @@ namespace Ryntra::IR {
         auto refType = std::make_shared<IR::RefType>(elemIRType);
         auto arrRef = builder_.createArrRef(
             builder_.generateUniqueName(""), arrayVal, indexVal, refType);
-        lastValue_ = builder_.createRefLoad(
+        auto loadInst = builder_.createRefLoad(
             builder_.generateUniqueName(""), arrRef, elemIRType);
+        if (loadInst)
+            loadInst->setSourceRange(node.getRange());
+        lastValue_ = loadInst;
     }
 
     void IRGenerator::visit(Compiler::Semantic::TypedArrayIndexAssignmentNode &node) {

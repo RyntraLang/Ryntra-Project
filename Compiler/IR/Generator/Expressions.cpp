@@ -109,6 +109,8 @@ namespace Ryntra::IR {
         bool isVoidCall = callee->getReturnType()->isVoid();
         std::string callName = isVoidCall ? "" : builder_.generateUniqueName("");
         auto callInst = builder_.createCall(callName, callee, argValues);
+        if (callInst)
+            callInst->setSourceRange(node.getRange());
         lastValue_ = isVoidCall ? nullptr : callInst;
     }
 
@@ -152,6 +154,8 @@ namespace Ryntra::IR {
         std::string callName = isVoidCall ? "" : builder_.generateUniqueName("");
         auto callInst = builder_.createCallIndirect(
             callName, calleeVal, argValues, resultType);
+        if (callInst)
+            callInst->setSourceRange(node.getRange());
         lastValue_ = isVoidCall ? nullptr : callInst;
     }
 } // namespace Ryntra::IR

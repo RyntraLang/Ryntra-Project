@@ -46,6 +46,7 @@ set(UTILITY_SOURCE
         Utility/SourceLocation/SourceRange.h
         Utility/SourceLocation/SourceRangeBuilder.h
         Utility/ErrorHandler/InternalCompilerError.h
+        Utility/ErrorHandler/RuntimeError.h
 )
 
 set(SEMANTIC_SOURCE

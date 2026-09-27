@@ -1,5 +1,6 @@
 #pragma once
 
+#include "SourceLocation/SourceRange.h"
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -64,6 +65,7 @@ namespace Ryntra::VM {
     struct Instruction {
         OpCode opcode;
         int32_t operand; // Index into constant pool or other data
+        Compiler::SourceRange range; // Source range this instruction was generated from
 
         Instruction(OpCode op, int32_t operand = 0)
             : opcode(op), operand(operand) {}

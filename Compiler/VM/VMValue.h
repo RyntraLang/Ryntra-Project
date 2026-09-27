@@ -31,6 +31,7 @@ namespace Ryntra::VM {
     public:
         enum class Type {
             Void,
+            Uninitialized, // storage that has never been assigned (reading it traps)
             Int32,
             Int64,
             String,
@@ -47,6 +48,14 @@ namespace Ryntra::VM {
         using ValueData = std::variant<std::monostate, int32_t, int64_t, std::string, void *, std::shared_ptr<ArrayData>, ArrayElementRef, std::shared_ptr<StructData>, StructFieldRef>;
 
         VMValue() : type_(Type::Void), data_(std::monostate{}) {}
+
+        /// \brief Create a value that represents never-assigned storage.
+        static VMValue uninitialized() {
+            VMValue value;
+            value.type_ = Type::Uninitialized;
+            return value;
+        }
+
         explicit VMValue(int32_t val) : type_(Type::Int32), data_(val) {}
         explicit VMValue(int64_t val) : type_(Type::Int64), data_(val) {}
         explicit VMValue(const std::string &val) : type_(Type::String), data_(val) {}
@@ -71,6 +80,7 @@ namespace Ryntra::VM {
         bool isFunctionPtr() const { return type_ == Type::FunctionPtr; }
 
         bool isVoid() const { return type_ == Type::Void; }
+        bool isUninitialized() const { return type_ == Type::Uninitialized; }
         bool isInt32() const { return type_ == Type::Int32; }
         bool isInt64() const { return type_ == Type::Int64; }
         bool isString() const { return type_ == Type::String; }

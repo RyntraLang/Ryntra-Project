@@ -23,6 +23,10 @@ namespace Ryntra::VM {
 
         void pushOperandValue(const std::shared_ptr<IR::Value> &operand);
 
+        // Append a bytecode instruction, stamping it with the source range of the
+        // IR instruction currently being lowered.
+        void emit(OpCode op, int32_t operand = 0);
+
         int32_t addConstant(const VMValue &value);
         int32_t getFunctionIndex(const std::string &name);
         int32_t getBuiltinIndex(const std::string &name);
@@ -42,5 +46,6 @@ namespace Ryntra::VM {
         int32_t nextSlot_;
         std::unordered_map<std::string, int32_t> blockOffsets_;
         std::vector<Fixup> fixups_;
+        Compiler::SourceRange currentRange_;
     };
 } // namespace Ryntra::VM

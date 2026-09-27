@@ -1,6 +1,7 @@
 #include "AST/ASTBuilder.h"
 #include "ErrorHandler/ErrorHandler.h"
 #include "ErrorHandler/LexParseErrorHandler.h"
+#include "ErrorHandler/RuntimeError.h"
 #include "IR/IRGenerator.h"
 #include "Semantic/SemanticAnalyzer.h"
 #include "VM/BytecodeGenerator.h"
@@ -161,6 +162,14 @@ int main(int argc, char **argv) {
         }
 
         return 0;
+    } catch (const Ryntra::Compiler::RuntimeErrorException &e) {
+        Ryntra::Compiler::ErrorHandler &handler = Ryntra::Compiler::ErrorHandler::getInstance();
+        handler.makeError(e.getDescription(), e.getRange());
+        for (const auto &frame : e.getTrace()) {
+            handler.makeHint("Call from '" + frame.callerName + "'", frame.callSite);
+        }
+        handler.print();
+        return 1;
     } catch (const std::exception &e) {
         std::print(std::cerr, "Error: {}\n", e.what());
         return 1;

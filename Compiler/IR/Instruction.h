@@ -2,6 +2,7 @@
 
 #include "ImmediateValue.h"
 #include "Value.h"
+#include "SourceLocation/SourceRange.h"
 #include <memory>
 #include <vector>
 
@@ -71,6 +72,11 @@ namespace Ryntra::IR {
         // so field layout / alignment can be derived without a raw integer offset.
         void setAggregateType(std::shared_ptr<Type> type) { aggregateType_ = std::move(type); }
         std::shared_ptr<Type> getAggregateType() const { return aggregateType_; }
+
+        // The source range this instruction was generated from. Used to attach a
+        // source location to runtime errors reported by the VM.
+        void setSourceRange(const Compiler::SourceRange &range) { sourceRange_ = range; }
+        Compiler::SourceRange getSourceRange() const { return sourceRange_; }
 
         // SSA instructions are local values — reference with %
         std::string getReferenceName() const override {
@@ -479,5 +485,6 @@ namespace Ryntra::IR {
         Opcode opcode_;
         std::vector<std::shared_ptr<Value>> operands_;
         std::shared_ptr<Type> aggregateType_;
+        Compiler::SourceRange sourceRange_;
     };
 } // namespace Ryntra::IR

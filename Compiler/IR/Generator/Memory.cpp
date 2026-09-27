@@ -30,8 +30,11 @@ namespace Ryntra::IR {
             builder_.generateUniqueName(""), it->second, refIRType);
 
         auto elemIRType = toIRType(node.getType());
-        lastValue_ = builder_.createRefLoad(
+        auto loadInst = builder_.createRefLoad(
             builder_.generateUniqueName(""), refVal, elemIRType);
+        if (loadInst)
+            loadInst->setSourceRange(node.getRange());
+        lastValue_ = loadInst;
     }
 
     void IRGenerator::visit(Compiler::Semantic::TypedRefAssignNode &node) {
@@ -88,8 +91,11 @@ namespace Ryntra::IR {
             builder_.generateUniqueName(""), it->second, ptrIRType);
 
         auto elemIRType = toIRType(node.getType());
-        lastValue_ = builder_.createLoad(
+        auto loadInst = builder_.createLoad(
             builder_.generateUniqueName(""), ptrVal, elemIRType);
+        if (loadInst)
+            loadInst->setSourceRange(node.getRange());
+        lastValue_ = loadInst;
     }
 
     void IRGenerator::visit(Compiler::Semantic::TypedPtrStoreNode &node) {
