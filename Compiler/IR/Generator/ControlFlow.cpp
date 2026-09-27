@@ -16,8 +16,18 @@ namespace Ryntra::IR {
         }
         for (const auto &strct : node.getStructs()) {
             auto irStruct = structTypeMap_[strct->getName()];
+            std::vector<StructFieldInitializer> initializers;
+            int32_t fieldIndex = 0;
             for (const auto &field : strct->getFields()) {
                 irStruct->addField(field->getName(), toIRType(field->getType()));
+                if (field->getInitializer()) {
+                    initializers.push_back(StructFieldInitializer{
+                        field->getName(), fieldIndex, field->getInitializer()});
+                }
+                ++fieldIndex;
+            }
+            if (!initializers.empty()) {
+                structFieldInitializers_[strct->getName()] = std::move(initializers);
             }
         }
 

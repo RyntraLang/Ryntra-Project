@@ -3,10 +3,18 @@
 #include "ImmediateValue.h"
 #include "Value.h"
 #include "SourceLocation/SourceRange.h"
+#include <cstdint>
 #include <memory>
 #include <vector>
 
 namespace Ryntra::IR {
+    // A default value attached to a struct field, used to initialize instances
+    // created by `alloca` of a struct type.
+    struct StructFieldDefault {
+        int32_t index;
+        std::shared_ptr<Value> value;
+    };
+
     class Instruction : public Value {
     public:
         // clang-format off
@@ -77,6 +85,13 @@ namespace Ryntra::IR {
         // source location to runtime errors reported by the VM.
         void setSourceRange(const Compiler::SourceRange &range) { sourceRange_ = range; }
         Compiler::SourceRange getSourceRange() const { return sourceRange_; }
+
+        // Default field values carried by a struct `alloca`. Applied by the
+        // bytecode generator right after the struct instance is created.
+        void setFieldDefaults(std::vector<StructFieldDefault> defaults) {
+            fieldDefaults_ = std::move(defaults);
+        }
+        const std::vector<StructFieldDefault> &getFieldDefaults() const { return fieldDefaults_; }
 
         // SSA instructions are local values — reference with %
         std::string getReferenceName() const override {
@@ -486,5 +501,6 @@ namespace Ryntra::IR {
         std::vector<std::shared_ptr<Value>> operands_;
         std::shared_ptr<Type> aggregateType_;
         Compiler::SourceRange sourceRange_;
+        std::vector<StructFieldDefault> fieldDefaults_;
     };
 } // namespace Ryntra::IR

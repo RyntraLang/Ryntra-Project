@@ -105,7 +105,7 @@ structDefinition
     ;
 
 structMember
-    : visibilityModifier typeSpecifier IDENTIFIER SEMICOLON
+    : visibilityModifier typeSpecifier IDENTIFIER (ASSIGN expression)? SEMICOLON
     | functionDefinition
     | constructor
     ;

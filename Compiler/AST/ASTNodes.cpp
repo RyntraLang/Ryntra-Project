@@ -639,7 +639,11 @@ namespace Ryntra::Compiler {
         if (modifier) {
             ss << " " << modifier->toString();
         }
-        ss << " " << type->toString() << " " << name->toString() << ")";
+        ss << " " << type->toString() << " " << name->toString();
+        if (initializer) {
+            ss << " = " << initializer->toString();
+        }
+        ss << ")";
         return ss.str();
     }
 

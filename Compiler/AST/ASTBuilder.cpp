@@ -62,7 +62,15 @@ namespace Ryntra::Compiler {
         auto modifier = visitVisibilityModifier(ctx->visibilityModifier());
         auto type = visitTypeSpecifier(ctx->typeSpecifier());
         auto nameNode = createNode<IdentifierNode>(ctx->IDENTIFIER(), ctx->IDENTIFIER()->getText());
-        return createNode<FieldDeclarationNode>(ctx, std::move(modifier), std::move(type), std::move(nameNode));
+        std::shared_ptr<ExpressionNode> initializer = nullptr;
+        for (auto *child : ctx->children) {
+            if (auto *exprCtx = dynamic_cast<antlr::RyntraParser::ExpressionContext *>(child)) {
+                initializer = visitExpression(exprCtx);
+                break;
+            }
+        }
+        return createNode<FieldDeclarationNode>(ctx, std::move(modifier), std::move(type),
+                                                std::move(nameNode), std::move(initializer));
     }
 
     std::shared_ptr<ModifierNode> ASTBuilder::visitVisibilityModifier(antlr::RyntraParser::VisibilityModifierContext *ctx) {

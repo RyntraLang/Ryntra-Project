@@ -343,9 +343,18 @@ namespace Ryntra::VM {
             // accesses have backing storage.
             if (auto ptrType = std::dynamic_pointer_cast<IR::PtrType>(inst->getType())) {
                 if (auto structType = std::dynamic_pointer_cast<IR::StructType>(ptrType->getElementType())) {
-                    emit(
-                        OpCode::NewStruct, static_cast<int32_t>(structType->getFields().size()));
+                    emit(OpCode::NewStruct, static_cast<int32_t>(structType->getFields().size()));
                     emit(OpCode::StoreLocal, slotNum);
+
+                    // Apply the struct's declared default field initializers.
+                    for (const auto &fieldDefault : inst->getFieldDefaults()) {
+                        emit(OpCode::LoadLocal, slotNum);
+                        emit(OpCode::FieldRef, fieldDefault.index);
+                        if (fieldDefault.value) {
+                            pushOperandValue(fieldDefault.value);
+                        }
+                        emit(OpCode::PtrStore, 0);
+                    }
                 }
             }
             break;

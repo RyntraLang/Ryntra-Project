@@ -8,8 +8,17 @@ namespace Ryntra::IR {
         auto varName = node.getName();
         auto varIRType = toIRType(node.getType());
 
+        // Lower default field initializers first so their IR values precede the
+        // struct allocation and are available when the instance is created.
+        std::vector<StructFieldDefault> fieldDefaults;
+        if (node.getType() && node.getType()->getKind() == Sem::TypeKind::STRUCT) {
+            const auto &structName = static_cast<const Sem::StructType &>(*node.getType()).getName();
+            fieldDefaults = buildStructFieldDefaults(structName);
+        }
+
         auto allocaInst = builder_.createAlloca(
             builder_.generateUniqueName(varName + "."), varIRType);
+        allocaInst->setFieldDefaults(std::move(fieldDefaults));
         allocaMap_[varName] = allocaInst;
 
         if (node.getInitializer()) {

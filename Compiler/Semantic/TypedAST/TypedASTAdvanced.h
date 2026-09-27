@@ -631,22 +631,28 @@ namespace Ryntra::Compiler::Semantic {
 
     class TypedFieldDeclarationNode : public ITypedASTNode {
     public:
-        TypedFieldDeclarationNode(std::string name, std::shared_ptr<Type> type)
-            : name(std::move(name)), type(std::move(type)) {}
+        TypedFieldDeclarationNode(std::string name, std::shared_ptr<Type> type,
+                                  std::shared_ptr<TypedExpressionNode> initializer = nullptr)
+            : name(std::move(name)), type(std::move(type)), initializer(std::move(initializer)) {}
 
         const std::string &getName() const { return name; }
         std::shared_ptr<Type> getType() const { return type; }
+        std::shared_ptr<TypedExpressionNode> getInitializer() const { return initializer; }
 
         void accept(ITypedVisitor &visitor) override { visitor.visit(*this); }
         std::string toString() const override { return "TypedFieldDeclaration(" + name + "): " + type->toString(); }
         void dump(int indent = 0) const override {
             printIndent(indent);
             std::cout << toString() << std::endl;
+            if (initializer) {
+                initializer->dump(indent + 1);
+            }
         }
 
     private:
         std::string name;
         std::shared_ptr<Type> type;
+        std::shared_ptr<TypedExpressionNode> initializer;
     };
 
     class TypedConstructorDeclarationNode : public ITypedASTNode {

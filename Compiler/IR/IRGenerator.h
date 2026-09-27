@@ -5,6 +5,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace Ryntra::IR {
     class IRGenerator : public Compiler::Semantic::ITypedVisitor {
@@ -105,6 +106,20 @@ namespace Ryntra::IR {
         // The receiver (`this`) of the method/constructor currently being generated.
         // It is the incoming argument value itself, so `self` needs no alloca.
         std::shared_ptr<Value> currentSelfValue_;
+
+        // A field's default initializer expression, captured in field order.
+        struct StructFieldInitializer {
+            std::string fieldName;
+            int32_t fieldIndex;
+            std::shared_ptr<Compiler::Semantic::TypedExpressionNode> value;
+        };
+        // Struct name -> default initializers for the fields that declare one.
+        std::unordered_map<std::string, std::vector<StructFieldInitializer>> structFieldInitializers_;
+
+        // Lower a struct's default field initializers into IR values, in field
+        // order. The resulting defaults are attached to the struct's `alloca` and
+        // applied by the bytecode generator when the instance is created.
+        std::vector<StructFieldDefault> buildStructFieldDefaults(const std::string &structName);
 
         // Wrap an ImmediateValue in a materialized Constant instruction.
         std::shared_ptr<Value> materialize(const std::shared_ptr<Value> &value);

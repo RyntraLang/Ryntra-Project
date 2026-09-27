@@ -721,11 +721,14 @@ namespace Ryntra::Compiler {
     public:
         FieldDeclarationNode(std::shared_ptr<ModifierNode> modifier,
                              std::shared_ptr<TypeSpecifierNode> type,
-                             std::shared_ptr<IdentifierNode> name)
-            : modifier(std::move(modifier)), type(std::move(type)), name(std::move(name)) {}
+                             std::shared_ptr<IdentifierNode> name,
+                             std::shared_ptr<ExpressionNode> initializer = nullptr)
+            : modifier(std::move(modifier)), type(std::move(type)), name(std::move(name)),
+              initializer(std::move(initializer)) {}
         std::shared_ptr<ModifierNode> getModifier() const { return modifier; }
         std::shared_ptr<TypeSpecifierNode> getType() const { return type; }
         std::shared_ptr<IdentifierNode> getName() const { return name; }
+        std::shared_ptr<ExpressionNode> getInitializer() const { return initializer; }
         void accept(IVisitor &visitor) override;
         std::string toString() const override;
 
@@ -733,6 +736,7 @@ namespace Ryntra::Compiler {
         std::shared_ptr<ModifierNode> modifier;
         std::shared_ptr<TypeSpecifierNode> type;
         std::shared_ptr<IdentifierNode> name;
+        std::shared_ptr<ExpressionNode> initializer;
     };
 
     class ConstructorDeclarationNode : public IASTNode {

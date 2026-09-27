@@ -655,7 +655,32 @@ namespace Ryntra::Compiler::Semantic {
         node.getType()->accept(*this);
         auto fieldType = lastType ? lastType : makeSTType("unknown");
 
-        auto typedField = std::make_shared<TypedFieldDeclarationNode>(fieldName, toTypedType(fieldType));
+        std::shared_ptr<TypedExpressionNode> typedInit = nullptr;
+        if (node.getInitializer()) {
+            expectedReturnType = toTypedType(fieldType);
+            node.getInitializer()->accept(*this);
+            expectedReturnType = nullptr;
+            typedInit = std::dynamic_pointer_cast<TypedExpressionNode>(lastNode);
+
+            if (typedInit) {
+                auto expectedTyped = toTypedType(fieldType);
+                auto actualType = typedInit->getType();
+                bool isAssignable = expectedTyped->equals(*actualType) ||
+                                    (actualType->toString() == "int" && expectedTyped->toString() == "long");
+                if (!isAssignable && actualType->toString() == "null" && expectedTyped->getKind() == TypeKind::POINTER) {
+                    isAssignable = true;
+                }
+                if (!isAssignable && actualType->toString() != "unknown") {
+                    ErrorHandler::getInstance().makeError(
+                        "[RCE105]: Field '" + fieldName + "' expects type '" +
+                            expectedTyped->toString() + "', but its initializer has type '" +
+                            actualType->toString() + "'.",
+                        node.getRange());
+                }
+            }
+        }
+
+        auto typedField = std::make_shared<TypedFieldDeclarationNode>(fieldName, toTypedType(fieldType), typedInit);
         typedField->setRange(node.getRange());
         lastNode = typedField;
     }

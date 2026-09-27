@@ -69,7 +69,7 @@ int main(int argc, char **argv) {
         parser.addErrorListener(new Ryntra::Compiler::LexParseErrorHandler());
 
         auto tree = parser.program();
-        std::cout << std::endl;
+        // std::cout << std::endl;
 
 #ifdef SHOW_LOG
         std::cout << tree->toStringTree(&parser) << std::endl;
