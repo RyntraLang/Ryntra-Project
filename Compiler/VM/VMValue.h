@@ -16,6 +16,16 @@ namespace Ryntra::VM {
         int32_t index;
     };
 
+    // Aggregate storage: a struct instance owns a vector of field values.
+    struct StructData {
+        std::vector<VMValue> fields;
+    };
+    // A reference to one field of a struct instance (produced by fieldptr).
+    struct StructFieldRef {
+        std::shared_ptr<StructData> data;
+        int32_t index;
+    };
+
     // Runtime value representation
     class VMValue {
     public:
@@ -29,10 +39,12 @@ namespace Ryntra::VM {
             Reference,    // holds an int32 slot index (local)
             Pointer,      // holds an int32 slot index (local) or array element index
             HeapPointer,   // holds an int32 slot index (heap)
-            ArrayElementRef // reference to an array element (arr[i])
+            ArrayElementRef, // reference to an array element (arr[i])
+            Struct,          // a struct instance (shared aggregate storage)
+            StructFieldRef   // reference to a struct field (s.field)
         };
 
-        using ValueData = std::variant<std::monostate, int32_t, int64_t, std::string, void *, std::shared_ptr<ArrayData>, ArrayElementRef>;
+        using ValueData = std::variant<std::monostate, int32_t, int64_t, std::string, void *, std::shared_ptr<ArrayData>, ArrayElementRef, std::shared_ptr<StructData>, StructFieldRef>;
 
         VMValue() : type_(Type::Void), data_(std::monostate{}) {}
         explicit VMValue(int32_t val) : type_(Type::Int32), data_(val) {}
@@ -41,6 +53,8 @@ namespace Ryntra::VM {
         explicit VMValue(void *ptr) : type_(Type::FunctionPtr), data_(ptr) {}
         explicit VMValue(std::shared_ptr<ArrayData> arr) : type_(Type::Array), data_(std::move(arr)) {}
         explicit VMValue(ArrayElementRef elemRef) : type_(Type::ArrayElementRef), data_(elemRef) {}
+        explicit VMValue(std::shared_ptr<StructData> strct) : type_(Type::Struct), data_(std::move(strct)) {}
+        explicit VMValue(StructFieldRef fieldRef) : type_(Type::StructFieldRef), data_(fieldRef) {}
 
         Type getType() const { return type_; }
 
@@ -63,6 +77,11 @@ namespace Ryntra::VM {
         bool isArray() const { return type_ == Type::Array; }
         bool isArrayElementRef() const { return type_ == Type::ArrayElementRef; }
         ArrayElementRef asArrayElementRef() const { return std::get<ArrayElementRef>(data_); }
+
+        bool isStruct() const { return type_ == Type::Struct; }
+        std::shared_ptr<StructData> asStruct() const { return std::get<std::shared_ptr<StructData>>(data_); }
+        bool isStructFieldRef() const { return type_ == Type::StructFieldRef; }
+        StructFieldRef asStructFieldRef() const { return std::get<StructFieldRef>(data_); }
 
         // Reference support — refs are stored as int32 slot indices
         void setReferenceSlot(int32_t slot) { type_ = Type::Reference; data_ = slot; }

@@ -55,6 +55,8 @@ namespace Ryntra::VM {
         PinArray,       // Pop ptr, pin array (no-op currently)
         UnpinArray,     // Pop ptr, unpin array (no-op currently)
         PtrFromArray,   // Pop array value, create pointer to element 0
+        NewStruct,      // Push a struct instance with `operand` default fields
+        FieldRef,       // Pop base (struct value or field ref), push ref to field `operand`
         Halt            // Stop execution
     };
     // clang-format on

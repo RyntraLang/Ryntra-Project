@@ -680,7 +680,17 @@ namespace Ryntra::VM {
 
             case OpCode::PtrLoad: {
                 auto ptrVal = pop();
-                if (ptrVal.isHeapPointer()) {
+                if (ptrVal.isStructFieldRef()) {
+                    auto ref = ptrVal.asStructFieldRef();
+                    if (ref.index >= 0 && static_cast<size_t>(ref.index) < ref.data->fields.size()) {
+                        push(ref.data->fields[ref.index]);
+                    } else {
+                        throw std::runtime_error("PtrLoad: invalid struct field index");
+                    }
+                } else if (ptrVal.isStruct()) {
+                    // Loading a whole struct yields the aggregate handle itself.
+                    push(ptrVal);
+                } else if (ptrVal.isHeapPointer()) {
                     int32_t slot = ptrVal.getHeapPointerSlot();
                     if (slot >= 0 && slot < static_cast<int32_t>(heap_.size())) {
                         push(heap_[slot]);
@@ -715,7 +725,20 @@ namespace Ryntra::VM {
             case OpCode::PtrStore: {
                 auto val = pop();
                 auto ptrVal = pop();
-                if (ptrVal.isHeapPointer()) {
+                if (ptrVal.isStructFieldRef()) {
+                    auto ref = ptrVal.asStructFieldRef();
+                    if (ref.index >= 0 && static_cast<size_t>(ref.index) < ref.data->fields.size()) {
+                        ref.data->fields[ref.index] = val;
+                    } else {
+                        throw std::runtime_error("PtrStore: invalid struct field index");
+                    }
+                } else if (ptrVal.isStruct()) {
+                    // Assigning to a whole struct copies field values.
+                    if (!val.isStruct()) {
+                        throw std::runtime_error("PtrStore: cannot assign non-struct to struct");
+                    }
+                    *ptrVal.asStruct() = *val.asStruct();
+                } else if (ptrVal.isHeapPointer()) {
                     int32_t slot = ptrVal.getHeapPointerSlot();
                     if (slot >= 0 && slot < static_cast<int32_t>(heap_.size())) {
                         heap_[slot] = val;
@@ -841,6 +864,54 @@ namespace Ryntra::VM {
                 break;
             }
 
+            case OpCode::NewStruct: {
+                auto data = std::make_shared<StructData>();
+                if (inst.operand > 0)
+                    data->fields.resize(static_cast<size_t>(inst.operand));
+                push(VMValue(data));
+                break;
+            }
+
+            case OpCode::FieldRef: {
+                auto base = pop();
+                std::shared_ptr<StructData> data;
+
+                if (base.isStruct()) {
+                    data = base.asStruct();
+                } else if (base.isStructFieldRef()) {
+                    auto ref = base.asStructFieldRef();
+                    if (ref.index >= 0 && static_cast<size_t>(ref.index) < ref.data->fields.size() &&
+                        ref.data->fields[ref.index].isStruct()) {
+                        data = ref.data->fields[ref.index].asStruct();
+                    } else {
+                        throw std::runtime_error("FieldRef: nested field is not a struct");
+                    }
+                } else if (base.isPointer() && !base.isArrayPointer()) {
+                    int32_t slot = base.getPointerSlot();
+                    if (slot >= 0 && static_cast<size_t>(slot) < frame.locals.size() &&
+                        frame.locals[slot].isStruct()) {
+                        data = frame.locals[slot].asStruct();
+                    } else {
+                        throw std::runtime_error("FieldRef: base is not a struct");
+                    }
+                } else if (base.isHeapPointer()) {
+                    int32_t slot = base.getHeapPointerSlot();
+                    if (slot >= 0 && static_cast<size_t>(slot) < heap_.size() && heap_[slot].isStruct()) {
+                        data = heap_[slot].asStruct();
+                    } else {
+                        throw std::runtime_error("FieldRef: base is not a struct");
+                    }
+                } else {
+                    throw std::runtime_error("FieldRef on non-struct value");
+                }
+
+                if (inst.operand < 0 || static_cast<size_t>(inst.operand) >= data->fields.size()) {
+                    throw std::runtime_error("FieldRef: field index out of range");
+                }
+                push(VMValue(StructFieldRef{data, inst.operand}));
+                break;
+            }
+
             default:
                 break;
             }
@@ -900,6 +971,8 @@ namespace Ryntra::VM {
         "PinArray",
         "UnpinArray",
         "PtrFromArray",
+        "NewStruct",
+        "FieldRef",
         "Halt",
     };
 
@@ -925,7 +998,9 @@ namespace Ryntra::VM {
                         inst.opcode == OpCode::Jmp ||
                         inst.opcode == OpCode::Jz ||
                         inst.opcode == OpCode::RefCreate ||
-                        inst.opcode == OpCode::PtrCreate) {
+                        inst.opcode == OpCode::PtrCreate ||
+                        inst.opcode == OpCode::NewStruct ||
+                        inst.opcode == OpCode::FieldRef) {
                         std::cout << " " << inst.operand;
                     } else if (inst.opcode == OpCode::Call || inst.opcode == OpCode::BCall) {
                         std::cout << " " << inst.operand;

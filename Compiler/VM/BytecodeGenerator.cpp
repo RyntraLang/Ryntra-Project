@@ -98,11 +98,21 @@ namespace Ryntra::VM {
             currentFunction_->addInstruction(OpCode::LoadLocal, arg->getIndex());
         } else if (auto argInst = std::dynamic_pointer_cast<IR::Instruction>(operand)) {
             if (argInst->getOpcode() == IR::Instruction::Opcode::Alloca) {
-                // Materialize the address of a local slot as a pointer value.
+                // Materialize the address of a local slot. For struct locals the
+                // slot holds an aggregate handle, so load it directly.
                 auto it = allocaSlotMap_.find(argInst.get());
                 if (it != allocaSlotMap_.end()) {
-                    currentFunction_->addInstruction(OpCode::LoadConst, addConstant(VMValue(it->second)));
-                    currentFunction_->addInstruction(OpCode::PtrCreate, 0);
+                    bool isStructLocal = false;
+                    if (auto ptrType = std::dynamic_pointer_cast<IR::PtrType>(argInst->getType()))
+                        isStructLocal = ptrType->getElementType()->isStruct();
+
+                    if (isStructLocal) {
+                        currentFunction_->addInstruction(OpCode::LoadLocal, it->second);
+                    } else {
+                        currentFunction_->addInstruction(
+                            OpCode::LoadConst, addConstant(VMValue(it->second)));
+                        currentFunction_->addInstruction(OpCode::PtrCreate, 0);
+                    }
                 }
             } else if (argInst->getOpcode() == IR::Instruction::Opcode::Constant) {
                 if (!argInst->getOperands().empty()) {
@@ -320,6 +330,16 @@ namespace Ryntra::VM {
         case IR::Instruction::Opcode::Alloca: {
             int32_t slotNum = nextSlot_++;
             allocaSlotMap_[inst.get()] = slotNum;
+
+            // Aggregate locals (structs) start as a fresh instance so field
+            // accesses have backing storage.
+            if (auto ptrType = std::dynamic_pointer_cast<IR::PtrType>(inst->getType())) {
+                if (auto structType = std::dynamic_pointer_cast<IR::StructType>(ptrType->getElementType())) {
+                    currentFunction_->addInstruction(
+                        OpCode::NewStruct, static_cast<int32_t>(structType->getFields().size()));
+                    currentFunction_->addInstruction(OpCode::StoreLocal, slotNum);
+                }
+            }
             break;
         }
 
@@ -479,6 +499,20 @@ namespace Ryntra::VM {
             // operands[0] = array value
             pushOperandValue(operands[0]);
             currentFunction_->addInstruction(OpCode::PtrFromArray, 0);
+            break;
+        }
+
+        case IR::Instruction::Opcode::FieldPtr: {
+            // operands[0] = struct base, operands[1] = field index
+            int32_t fieldIndex = 0;
+            if (operands.size() >= 2) {
+                if (auto imm = std::dynamic_pointer_cast<IR::ImmediateValue>(operands[1]))
+                    fieldIndex = std::stoi(imm->getLiteralValue());
+            }
+            if (!operands.empty()) {
+                pushOperandValue(operands[0]);
+                currentFunction_->addInstruction(OpCode::FieldRef, fieldIndex);
+            }
             break;
         }
 

@@ -69,4 +69,9 @@ Semantic Note:
 - ✅ V0.1.1.3 Struct AST Generation
 - ✅ V0.1.1.4 Struct Symbol/Type, Field Symbol, Method Symbol
 - ✅ V0.1.1.5 Struct Semantic Analysis (excludes `private` functionality)
-- ❌ V0.1.1.6 Struct IR Generation
+- ✅ V0.1.1.6 Struct IR Generation
+- ❌ V0.1.1.7 Struct VM Bytecode Generation and Running
+- ❌ V0.1.1.8 Fix some bugs, add some features
+  - Add initializer for struct fields
+  - Add constructor calls
+- ❌ V0.1.1.8 `AlignAs()` annotation and `alignof` keyword
