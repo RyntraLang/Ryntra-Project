@@ -204,6 +204,81 @@ namespace Ryntra::Compiler::Semantic {
         std::shared_ptr<TypedExpressionNode> initializer;
     };
 
+    // Value construction: `Rectangle(...)` allocates a struct value in place and
+    // runs the matching constructor on it. The expression's type is the struct.
+    class TypedConstructorCallNode : public TypedExpressionNode {
+    public:
+        TypedConstructorCallNode(std::string structName,
+                                 std::vector<std::shared_ptr<TypedExpressionNode>> arguments,
+                                 std::vector<std::shared_ptr<Type>> parameterTypes,
+                                 bool hasConstructor,
+                                 std::shared_ptr<Type> type)
+            : TypedExpressionNode(std::move(type)), structName(std::move(structName)),
+              arguments(std::move(arguments)), parameterTypes(std::move(parameterTypes)),
+              constructorResolved(hasConstructor) {}
+
+        const std::string &getStructName() const { return structName; }
+        const std::vector<std::shared_ptr<TypedExpressionNode>> &getArguments() const { return arguments; }
+        // Resolved overload's parameter types (used for constructor mangling).
+        const std::vector<std::shared_ptr<Type>> &getParameterTypes() const { return parameterTypes; }
+        bool hasConstructor() const { return constructorResolved; }
+
+        void accept(ITypedVisitor &visitor) override { visitor.visit(*this); }
+        std::string toString() const override { return "TypedConstructorCall(" + structName + "): " + type->toString(); }
+        void dump(int indent = 0) const override {
+            printIndent(indent);
+            std::cout << toString() << std::endl;
+            printIndent(indent + 1);
+            std::cout << "Arguments:" << std::endl;
+            for (const auto &arg : arguments) {
+                arg->dump(indent + 2);
+            }
+        }
+
+    private:
+        std::string structName;
+        std::vector<std::shared_ptr<TypedExpressionNode>> arguments;
+        std::vector<std::shared_ptr<Type>> parameterTypes;
+        bool constructorResolved;
+    };
+
+    // Dynamic construction: `new Rectangle(...)` allocates a struct on the heap,
+    // runs the matching constructor on it, and yields a `ptr<Rectangle>`.
+    class TypedNewObjectNode : public TypedExpressionNode {
+    public:
+        TypedNewObjectNode(std::string structName,
+                           std::vector<std::shared_ptr<TypedExpressionNode>> arguments,
+                           std::vector<std::shared_ptr<Type>> parameterTypes,
+                           bool hasConstructor,
+                           std::shared_ptr<Type> type)
+            : TypedExpressionNode(std::move(type)), structName(std::move(structName)),
+              arguments(std::move(arguments)), parameterTypes(std::move(parameterTypes)),
+              constructorResolved(hasConstructor) {}
+
+        const std::string &getStructName() const { return structName; }
+        const std::vector<std::shared_ptr<TypedExpressionNode>> &getArguments() const { return arguments; }
+        const std::vector<std::shared_ptr<Type>> &getParameterTypes() const { return parameterTypes; }
+        bool hasConstructor() const { return constructorResolved; }
+
+        void accept(ITypedVisitor &visitor) override { visitor.visit(*this); }
+        std::string toString() const override { return "TypedNewObject(" + structName + "): " + type->toString(); }
+        void dump(int indent = 0) const override {
+            printIndent(indent);
+            std::cout << toString() << std::endl;
+            printIndent(indent + 1);
+            std::cout << "Arguments:" << std::endl;
+            for (const auto &arg : arguments) {
+                arg->dump(indent + 2);
+            }
+        }
+
+    private:
+        std::string structName;
+        std::vector<std::shared_ptr<TypedExpressionNode>> arguments;
+        std::vector<std::shared_ptr<Type>> parameterTypes;
+        bool constructorResolved;
+    };
+
     class TypedDeleteNode : public TypedStatementNode {
     public:
         explicit TypedDeleteNode(std::shared_ptr<TypedExpressionNode> ptrExpr)

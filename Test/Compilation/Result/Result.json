@@ -153,6 +153,10 @@
             "expectOutput": [
                 "[Error]: (8:8-8:17) [RCE077]: Cannot delete a function pointer."
             ]
+        },
+        {
+            "fileName": "9.1 Constructor Call.rynt",
+            "expectOutput": ["20000", "80000", "2000"]
         }
     ]
 }

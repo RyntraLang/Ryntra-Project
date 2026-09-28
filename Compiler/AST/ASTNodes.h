@@ -662,16 +662,19 @@ namespace Ryntra::Compiler {
     class NewExpressionNode : public ExpressionNode {
     public:
         NewExpressionNode(std::shared_ptr<TypeSpecifierNode> elementType,
-                          std::shared_ptr<ExpressionNode> initializer)
-            : elementType(std::move(elementType)), initializer(std::move(initializer)) {}
+                          std::vector<std::shared_ptr<ExpressionNode>> arguments)
+            : elementType(std::move(elementType)), arguments(std::move(arguments)) {}
         std::shared_ptr<TypeSpecifierNode> getElementType() const { return elementType; }
-        std::shared_ptr<ExpressionNode> getInitializer() const { return initializer; }
+        // Arguments written in the parentheses after the type. For primitive
+        // allocations this is at most one initializer value; for struct
+        // allocations these are the constructor arguments.
+        const std::vector<std::shared_ptr<ExpressionNode>> &getArguments() const { return arguments; }
         void accept(IVisitor &visitor) override;
         std::string toString() const override;
 
     private:
         std::shared_ptr<TypeSpecifierNode> elementType;
-        std::shared_ptr<ExpressionNode> initializer;
+        std::vector<std::shared_ptr<ExpressionNode>> arguments;
     };
 
     class DeleteStatementNode : public StatementNode {

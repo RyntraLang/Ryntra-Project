@@ -222,9 +222,29 @@ namespace Ryntra::Compiler::Semantic {
             return;
         }
 
-        // Struct method call: `value.method(...)` / `self.method(...)`.
+        // Struct method call: `value.method(...)`, `ptr.method(...)`,
+        // `self.method(...)`. A `ptr<Struct>` receiver is auto-dereferenced.
+        const StructType *structTypePtr = nullptr;
         if (objectType->getKind() == TypeKind::STRUCT) {
-            auto &structType = static_cast<const StructType &>(*objectType);
+            structTypePtr = &static_cast<const StructType &>(*objectType);
+        } else if (objectType->getKind() == TypeKind::POINTER) {
+            auto elemType = static_cast<const PointerType &>(*objectType).getElementType();
+            if (elemType->getKind() == TypeKind::STRUCT) {
+                // Only auto-dereference when the struct actually declares a
+                // method with this name; otherwise fall through so pointer
+                // operations such as `.load()` / `.store()` still apply.
+                auto &candidate = static_cast<const StructType &>(*elemType);
+                auto candidateIt = structTypes.find(candidate.getName());
+                if (candidateIt != structTypes.end()) {
+                    auto member = candidateIt->second->lookupMember(methodName);
+                    if (member && !std::dynamic_pointer_cast<FieldSymbol>(member)) {
+                        structTypePtr = &candidate;
+                    }
+                }
+            }
+        }
+        if (structTypePtr) {
+            auto &structType = *structTypePtr;
             auto structIt = structTypes.find(structType.getName());
             if (structIt == structTypes.end()) {
                 ErrorHandler::getInstance().makeError(

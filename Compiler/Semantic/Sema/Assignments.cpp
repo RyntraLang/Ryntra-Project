@@ -183,10 +183,60 @@ namespace Ryntra::Compiler::Semantic {
 
         auto elemType = toTypedType(elemSTType);
 
+        std::vector<std::shared_ptr<TypedExpressionNode>> typedArgs;
+        for (const auto &arg : node.getArguments()) {
+            arg->accept(*this);
+            typedArgs.push_back(std::dynamic_pointer_cast<TypedExpressionNode>(lastNode));
+        }
+
+        // Dynamic struct construction: `new Rectangle(...)` heap-allocates a
+        // struct instance, runs the constructor, and yields a `ptr<Rectangle>`.
+        if (auto structSTType = std::dynamic_pointer_cast<STType::StructType>(elemSTType)) {
+            std::vector<TypePtr> ctorParamSTTypes;
+            bool anyDeclared = false;
+            auto ctor = resolveConstructor(structSTType, typedArgs, ctorParamSTTypes,
+                                           anyDeclared, node.getRange());
+
+            if (!ctor && anyDeclared) {
+                lastNode = nullptr;
+                return;
+            }
+            if (!ctor && !anyDeclared && !typedArgs.empty()) {
+                ErrorHandler::getInstance().makeError(
+                    "[RCE106]: Struct '" + structSTType->getName() +
+                        "' has no constructor accepting " + std::to_string(typedArgs.size()) +
+                        " argument(s).",
+                    node.getRange());
+                lastNode = nullptr;
+                return;
+            }
+
+            std::vector<std::shared_ptr<Type>> ctorParamTypes;
+            for (const auto &pt : ctorParamSTTypes) {
+                ctorParamTypes.push_back(toTypedType(pt));
+            }
+
+            auto ptrType = TypeFactory::getPointer(toTypedType(structSTType));
+            auto typedNew = std::make_shared<TypedNewObjectNode>(
+                structSTType->getName(), std::move(typedArgs), std::move(ctorParamTypes),
+                ctor != nullptr, ptrType);
+            typedNew->setRange(node.getRange());
+            lastNode = typedNew;
+            return;
+        }
+
+        // Primitive heap allocation: at most one initializer value.
         std::shared_ptr<TypedExpressionNode> typedInit = nullptr;
-        if (node.getInitializer()) {
-            node.getInitializer()->accept(*this);
-            typedInit = std::dynamic_pointer_cast<TypedExpressionNode>(lastNode);
+        if (!typedArgs.empty()) {
+            typedInit = typedArgs[0];
+            if (typedArgs.size() > 1) {
+                ErrorHandler::getInstance().makeError(
+                    "[RCE056]: 'new " + elemType->toString() +
+                        "' accepts at most one initializer value.",
+                    node.getRange());
+                lastNode = nullptr;
+                return;
+            }
             if (!typedInit) {
                 lastNode = nullptr;
                 return;

@@ -767,13 +767,17 @@ namespace Ryntra::Compiler {
 
     std::shared_ptr<NewExpressionNode> ASTBuilder::visitNewExpression(antlr::RyntraParser::NewExpressionContext *ctx) {
         auto elemType = visitTypeSpecifier(ctx->typeSpecifier());
-        return createNode<NewExpressionNode>(ctx, std::move(elemType), nullptr);
+        return createNode<NewExpressionNode>(ctx, std::move(elemType),
+                                            std::vector<std::shared_ptr<ExpressionNode>>{});
     }
 
     std::shared_ptr<NewExpressionNode> ASTBuilder::visitNewWithInitExpression(antlr::RyntraParser::NewWithInitExpressionContext *ctx) {
         auto elemType = visitTypeSpecifier(ctx->typeSpecifier());
-        auto init = visitExpression(ctx->expression());
-        return createNode<NewExpressionNode>(ctx, std::move(elemType), std::move(init));
+        std::vector<std::shared_ptr<ExpressionNode>> args;
+        if (ctx->argumentList()) {
+            args = visitArgumentList(ctx->argumentList())->getArguments();
+        }
+        return createNode<NewExpressionNode>(ctx, std::move(elemType), std::move(args));
     }
 
     std::shared_ptr<FixedNode> ASTBuilder::visitFixedStatement(antlr::RyntraParser::FixedStatementContext *ctx) {

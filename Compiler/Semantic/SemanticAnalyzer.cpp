@@ -74,6 +74,17 @@ namespace Ryntra::Compiler::Semantic {
     }
 
     TypePtr SemanticAnalyzer::makeSTType(const std::string &name) {
+        // Named aggregate (struct) types keep their full definition, so nested
+        // spellings such as `ptr<Rectangle>` resolve to the real struct type
+        // instead of falling back to a primitive.
+        if (auto typeSym = std::dynamic_pointer_cast<TypeSymbol>(symbolTable.resolve(name))) {
+            return typeSym->getType();
+        }
+        auto structIt = structTypes.find(name);
+        if (structIt != structTypes.end()) {
+            return structIt->second;
+        }
+
         if (name == "void")
             return std::make_shared<STType::VoidType>();
         if (name == "string")

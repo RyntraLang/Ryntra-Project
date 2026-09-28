@@ -90,8 +90,8 @@ namespace Ryntra::Compiler::Semantic {
         void registerStructMembers(const std::shared_ptr<STType::StructType> &structType,
                                    const std::shared_ptr<MemberListNode> &memberList);
 
-        // Build a TypePtr from a type-name string
-        static TypePtr makeSTType(const std::string &name);
+        // Build a TypePtr from a type-name string (resolves named struct types)
+        TypePtr makeSTType(const std::string &name);
 
         // Recursively check that every named type inside a type-name string is known
         void checkKnownTypeNames(const std::string &name, const SourceRange &range);
@@ -106,6 +106,17 @@ namespace Ryntra::Compiler::Semantic {
         // Select the overload to take the address of, matching the expected type if available
         std::shared_ptr<FunctionSymbol> pickFunctionForAddress(const std::shared_ptr<OverloadSet> &ovSet,
                                                                const SourceRange &range);
+
+        // Resolve a struct constructor overload for the given (already typed)
+        // arguments. Returns the selected constructor or nullptr. `outAnyDeclared`
+        // is set when the struct declares at least one constructor; `outParamTypes`
+        // receives the selected overload's parameter types (for mangling).
+        std::shared_ptr<FunctionSymbol> resolveConstructor(
+            const std::shared_ptr<STType::StructType> &structType,
+            const std::vector<std::shared_ptr<TypedExpressionNode>> &typedArgs,
+            std::vector<TypePtr> &outParamTypes,
+            bool &outAnyDeclared,
+            const SourceRange &range);
     };
 
 } // namespace Ryntra::Compiler::Semantic

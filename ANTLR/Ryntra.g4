@@ -223,7 +223,7 @@ expression
     : REF LPAREN expression RPAREN                                  # RefExpression
     | PTR LPAREN expression RPAREN                                  # PtrExpression
     | NEW typeSpecifier                                             # NewExpression
-    | NEW typeSpecifier LPAREN expression RPAREN                    # NewWithInitExpression
+    | NEW typeSpecifier LPAREN argumentList? RPAREN                 # NewWithInitExpression
     | LPAREN typeSpecifier RPAREN expression                        # CastExpression
     | LPAREN expression RPAREN                                      # ParenthesizedExpression
     | expression INC                                                # PostfixIncExpression

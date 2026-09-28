@@ -537,7 +537,9 @@ namespace Ryntra::Compiler {
     std::string NewExpressionNode::toString() const {
         std::stringstream ss;
         ss << "(New " << elementType->toString();
-        if (initializer) ss << " " << initializer->toString();
+        for (const auto &arg : arguments) {
+            ss << " " << arg->toString();
+        }
         ss << ")";
         return ss.str();
     }

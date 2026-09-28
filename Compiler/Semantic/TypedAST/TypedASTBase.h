@@ -68,6 +68,8 @@ namespace Ryntra::Compiler::Semantic {
     class TypedMemberAssignmentNode;
     class TypedMethodCallNode;
     class TypedParameterListNode;
+    class TypedConstructorCallNode;
+    class TypedNewObjectNode;
 
     class ITypedVisitor {
     public:
@@ -128,6 +130,8 @@ namespace Ryntra::Compiler::Semantic {
         virtual void visit(TypedMemberAssignmentNode &node) {}
         virtual void visit(TypedMethodCallNode &node) {}
         virtual void visit(TypedParameterListNode &node) {}
+        virtual void visit(TypedConstructorCallNode &node) {}
+        virtual void visit(TypedNewObjectNode &node) {}
     };
 
     class ITypedASTNode {

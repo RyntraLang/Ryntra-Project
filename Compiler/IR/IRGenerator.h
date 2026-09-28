@@ -68,6 +68,8 @@ namespace Ryntra::IR {
         void visit(Compiler::Semantic::TypedMemberAccessNode &node) override;
         void visit(Compiler::Semantic::TypedMemberAssignmentNode &node) override;
         void visit(Compiler::Semantic::TypedMethodCallNode &node) override;
+        void visit(Compiler::Semantic::TypedConstructorCallNode &node) override;
+        void visit(Compiler::Semantic::TypedNewObjectNode &node) override;
 
     private:
         IRBuilder builder_;

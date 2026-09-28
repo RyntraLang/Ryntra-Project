@@ -63,6 +63,45 @@ namespace Ryntra::Compiler::Semantic {
             }
         }
 
+        // Case: value construction, e.g. `Rectangle(100, 200)`. A struct type name
+        // used in call position denotes a constructor call producing a struct value.
+        if (auto typeSym = std::dynamic_pointer_cast<TypeSymbol>(sym)) {
+            if (auto structSTType = std::dynamic_pointer_cast<STType::StructType>(typeSym->getType())) {
+                std::vector<TypePtr> ctorParamSTTypes;
+                bool anyDeclared = false;
+                auto ctor = resolveConstructor(structSTType, typedArgs, ctorParamSTTypes,
+                                               anyDeclared, node.getRange());
+
+                if (!ctor && anyDeclared) {
+                    // A constructor was declared but no overload matched; the
+                    // concrete error has already been reported.
+                    lastNode = nullptr;
+                    return;
+                }
+                if (!ctor && !anyDeclared && !args.empty()) {
+                    ErrorHandler::getInstance().makeError(
+                        "[RCE106]: Struct '" + funcName + "' has no constructor accepting " +
+                            std::to_string(args.size()) + " argument(s).",
+                        node.getRange());
+                    lastNode = nullptr;
+                    return;
+                }
+
+                std::vector<std::shared_ptr<Type>> ctorParamTypes;
+                for (const auto &pt : ctorParamSTTypes) {
+                    ctorParamTypes.push_back(toTypedType(pt));
+                }
+
+                auto structType = toTypedType(structSTType);
+                auto typedCtor = std::make_shared<TypedConstructorCallNode>(
+                    funcName, std::move(typedArgs), std::move(ctorParamTypes),
+                    ctor != nullptr, structType);
+                typedCtor->setRange(node.getRange());
+                lastNode = typedCtor;
+                return;
+            }
+        }
+
         TypePtr stReturnType;
         std::vector<TypePtr> expectedParamTypes;
 

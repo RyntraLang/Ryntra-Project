@@ -99,6 +99,93 @@ namespace Ryntra::Compiler::Semantic {
         }
     }
 
+    std::shared_ptr<FunctionSymbol> SemanticAnalyzer::resolveConstructor(
+        const std::shared_ptr<STType::StructType> &structType,
+        const std::vector<std::shared_ptr<TypedExpressionNode>> &typedArgs,
+        std::vector<TypePtr> &outParamTypes,
+        bool &outAnyDeclared,
+        const SourceRange &range) {
+        outParamTypes.clear();
+        outAnyDeclared = false;
+        if (!structType) {
+            return nullptr;
+        }
+
+        // Constructors are registered in the struct's member scope under the
+        // struct name, alongside methods/fields.
+        auto member = structType->lookupMember(structType->getName());
+        std::shared_ptr<OverloadSet> overloads;
+        if (auto fn = std::dynamic_pointer_cast<FunctionSymbol>(member)) {
+            overloads = std::make_shared<OverloadSet>(structType->getName());
+            overloads->addFunction(fn);
+        } else if (auto set = std::dynamic_pointer_cast<OverloadSet>(member)) {
+            overloads = set;
+        }
+
+        if (!overloads || overloads->getFunctions().empty()) {
+            return nullptr;
+        }
+        outAnyDeclared = true;
+
+        std::shared_ptr<FunctionSymbol> sameArity;
+        for (const auto &fn : overloads->getFunctions()) {
+            if (fn->getParamTypes().size() != typedArgs.size()) {
+                continue;
+            }
+            if (!sameArity) {
+                sameArity = fn;
+            }
+
+            bool match = true;
+            for (size_t i = 0; i < typedArgs.size(); ++i) {
+                if (!typedArgs[i]) {
+                    match = false;
+                    break;
+                }
+                auto expected = toTypedType(fn->getParamTypes()[i]);
+                auto actual = typedArgs[i]->getType();
+                bool ok = expected->equals(*actual) ||
+                          (actual->toString() == "int" && expected->toString() == "long");
+                if (!ok && actual->toString() != "unknown") {
+                    match = false;
+                    break;
+                }
+            }
+
+            if (match) {
+                outParamTypes = fn->getParamTypes();
+                return fn;
+            }
+        }
+
+        if (!sameArity) {
+            ErrorHandler::getInstance().makeError(
+                "[RCE106]: Constructor '" + structType->getName() +
+                    "' has no overload accepting " + std::to_string(typedArgs.size()) +
+                    " argument(s).",
+                range);
+        } else {
+            for (size_t i = 0; i < typedArgs.size(); ++i) {
+                if (!typedArgs[i]) {
+                    continue;
+                }
+                auto expected = toTypedType(sameArity->getParamTypes()[i]);
+                auto actual = typedArgs[i]->getType();
+                if (!expected->equals(*actual) && actual->toString() != "unknown" &&
+                    !(actual->toString() == "int" && expected->toString() == "long")) {
+                    ErrorHandler::getInstance().makeError(
+                        "[RCE107]: Argument " + std::to_string(i + 1) +
+                            " of constructor '" + structType->getName() +
+                            "' expects type '" + expected->toString() + "', but got '" +
+                            actual->toString() + "'.",
+                        range);
+                }
+            }
+        }
+
+        return nullptr;
+    }
+
     void SemanticAnalyzer::visit(ProgramNode &node) {
         // Pre-register struct types so function/method signatures can name them.
         // The bodies are analyzed later, once builtins are available.
@@ -748,7 +835,18 @@ namespace Ryntra::Compiler::Semantic {
         auto memberName = node.getMember()->getName();
         auto objectType = typedObject->getType();
 
-        if (objectType->getKind() != TypeKind::STRUCT) {
+        // Member access also auto-dereferences a pointer to a struct.
+        const StructType *structTypePtr = nullptr;
+        if (objectType->getKind() == TypeKind::STRUCT) {
+            structTypePtr = &static_cast<const StructType &>(*objectType);
+        } else if (objectType->getKind() == TypeKind::POINTER) {
+            auto elemType = static_cast<const PointerType &>(*objectType).getElementType();
+            if (elemType->getKind() == TypeKind::STRUCT) {
+                structTypePtr = &static_cast<const StructType &>(*elemType);
+            }
+        }
+
+        if (!structTypePtr) {
             ErrorHandler::getInstance().makeError(
                 "[RCE094]: Member access '." + memberName + "' requires a struct value, but got '" +
                     objectType->toString() + "'.",
@@ -757,7 +855,7 @@ namespace Ryntra::Compiler::Semantic {
             return;
         }
 
-        auto &structType = static_cast<const StructType &>(*objectType);
+        auto &structType = *structTypePtr;
         auto fieldType = structType.getField(memberName);
         if (!fieldType) {
             // The name may refer to a method: accessing a method without calling it
