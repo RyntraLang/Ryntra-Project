@@ -127,10 +127,10 @@ namespace Ryntra::VM {
         }
     }
 
-    void BytecodeGenerator::emit(OpCode op, int32_t operand) {
+    void BytecodeGenerator::emit(OpCode op, int32_t operand, int32_t operand2) {
         if (!currentFunction_)
             return;
-        currentFunction_->addInstruction(op, operand);
+        currentFunction_->addInstruction(op, operand, operand2);
         currentFunction_->instructions.back().range = currentRange_;
     }
 
@@ -343,13 +343,14 @@ namespace Ryntra::VM {
             // accesses have backing storage.
             if (auto ptrType = std::dynamic_pointer_cast<IR::PtrType>(inst->getType())) {
                 if (auto structType = std::dynamic_pointer_cast<IR::StructType>(ptrType->getElementType())) {
-                    emit(OpCode::NewStruct, static_cast<int32_t>(structType->getFields().size()));
+                    // Size and alignment come from the layout computed by the compiler.
+                    emit(OpCode::NewStruct, structType->getSize(), structType->getAlignment());
                     emit(OpCode::StoreLocal, slotNum);
 
                     // Apply the struct's declared default field initializers.
                     for (const auto &fieldDefault : inst->getFieldDefaults()) {
                         emit(OpCode::LoadLocal, slotNum);
-                        emit(OpCode::FieldRef, fieldDefault.index);
+                        emit(OpCode::FieldRef, fieldDefault.offset);
                         if (fieldDefault.value) {
                             pushOperandValue(fieldDefault.value);
                         }
@@ -520,15 +521,15 @@ namespace Ryntra::VM {
         }
 
         case IR::Instruction::Opcode::FieldPtr: {
-            // operands[0] = struct base, operands[1] = field index
-            int32_t fieldIndex = 0;
+            // operands[0] = struct base, operands[1] = field byte offset (from layout)
+            int32_t fieldOffset = 0;
             if (operands.size() >= 2) {
                 if (auto imm = std::dynamic_pointer_cast<IR::ImmediateValue>(operands[1]))
-                    fieldIndex = std::stoi(imm->getLiteralValue());
+                    fieldOffset = std::stoi(imm->getLiteralValue());
             }
             if (!operands.empty()) {
                 pushOperandValue(operands[0]);
-                emit(OpCode::FieldRef, fieldIndex);
+                emit(OpCode::FieldRef, fieldOffset);
             }
             break;
         }

@@ -112,7 +112,7 @@ namespace Ryntra::IR {
         // A field's default initializer expression, captured in field order.
         struct StructFieldInitializer {
             std::string fieldName;
-            int32_t fieldIndex;
+            int32_t fieldOffset;
             std::shared_ptr<Compiler::Semantic::TypedExpressionNode> value;
         };
         // Struct name -> default initializers for the fields that declare one.

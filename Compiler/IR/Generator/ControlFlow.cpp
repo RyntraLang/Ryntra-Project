@@ -14,17 +14,34 @@ namespace Ryntra::IR {
                     module->addType(irStruct);
             }
         }
+        // Fill in the fields declared by each struct, in source order, and apply
+        // any explicit `[AlignAs(N)]` alignment.
+        for (const auto &strct : node.getStructs()) {
+            auto irStruct = structTypeMap_[strct->getName()];
+            irStruct->setExplicitAlignment(strct->getAlignment());
+            for (const auto &field : strct->getFields()) {
+                irStruct->addField(field->getName(), toIRType(field->getType()));
+            }
+        }
+
+        // Struct Layout phase: compute byte offsets, padding and total size for
+        // every struct before any field is addressed. FieldRef must never derive
+        // its own offset; it consumes the offsets computed here.
+        for (const auto &strct : node.getStructs()) {
+            structTypeMap_[strct->getName()]->computeLayout();
+        }
+
         for (const auto &strct : node.getStructs()) {
             auto irStruct = structTypeMap_[strct->getName()];
             std::vector<StructFieldInitializer> initializers;
-            int32_t fieldIndex = 0;
             for (const auto &field : strct->getFields()) {
-                irStruct->addField(field->getName(), toIRType(field->getType()));
-                if (field->getInitializer()) {
-                    initializers.push_back(StructFieldInitializer{
-                        field->getName(), fieldIndex, field->getInitializer()});
+                if (!field->getInitializer()) {
+                    continue;
                 }
-                ++fieldIndex;
+                initializers.push_back(StructFieldInitializer{
+                    field->getName(),
+                    irStruct->getFieldOffset(field->getName()),
+                    field->getInitializer()});
             }
             if (!initializers.empty()) {
                 structFieldInitializers_[strct->getName()] = std::move(initializers);

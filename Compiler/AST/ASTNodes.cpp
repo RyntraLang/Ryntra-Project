@@ -544,6 +544,16 @@ namespace Ryntra::Compiler {
         return ss.str();
     }
 
+    void AlignofNode::accept(IVisitor &visitor) {
+        if (auto *v = dynamic_cast<Visitor<AlignofNode> *>(&visitor)) {
+            v->visit(*this);
+        }
+    }
+
+    std::string AlignofNode::toString() const {
+        return "(Alignof " + type->toString() + ")";
+    }
+
     void DeleteStatementNode::accept(IVisitor &visitor) {
         if (auto *v = dynamic_cast<Visitor<DeleteStatementNode> *>(&visitor)) {
             v->visit(*this);

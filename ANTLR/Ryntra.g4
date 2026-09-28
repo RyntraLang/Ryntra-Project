@@ -25,6 +25,7 @@ UNSAFE: 'unsafe';
 FIXED: 'fixed';
 STRUCT: 'struct';
 SELF: 'self';
+ALIGNOF: 'alignof';
 
 // Symbols & Operators
 SEMICOLON: ';';
@@ -105,9 +106,9 @@ structDefinition
     ;
 
 structMember
-    : visibilityModifier typeSpecifier IDENTIFIER (ASSIGN expression)? SEMICOLON
-    | functionDefinition
-    | constructor
+    : annotation* visibilityModifier typeSpecifier IDENTIFIER (ASSIGN expression)? SEMICOLON
+    | annotation* functionDefinition
+    | annotation* constructor
     ;
 
 visibilityModifier
@@ -224,6 +225,7 @@ expression
     | PTR LPAREN expression RPAREN                                  # PtrExpression
     | NEW typeSpecifier                                             # NewExpression
     | NEW typeSpecifier LPAREN argumentList? RPAREN                 # NewWithInitExpression
+    | ALIGNOF LPAREN typeSpecifier RPAREN                           # AlignofExpression
     | LPAREN typeSpecifier RPAREN expression                        # CastExpression
     | LPAREN expression RPAREN                                      # ParenthesizedExpression
     | expression INC                                                # PostfixIncExpression

@@ -56,19 +56,20 @@ namespace Ryntra::VM {
         PinArray,       // Pop ptr, pin array (no-op currently)
         UnpinArray,     // Pop ptr, unpin array (no-op currently)
         PtrFromArray,   // Pop array value, create pointer to element 0
-        NewStruct,      // Push a struct instance with `operand` default fields
-        FieldRef,       // Pop base (struct value or field ref), push ref to field `operand`
+        NewStruct,      // Push a struct instance; operand = size in bytes, operand2 = alignment
+        FieldRef,       // Pop base (struct value or field ref), push ref to field at byte `operand`
         Halt            // Stop execution
     };
     // clang-format on
 
     struct Instruction {
         OpCode opcode;
-        int32_t operand; // Index into constant pool or other data
+        int32_t operand;  // Index into constant pool or other data
+        int32_t operand2; // Secondary operand (e.g. struct alignment for NewStruct)
         Compiler::SourceRange range; // Source range this instruction was generated from
 
-        Instruction(OpCode op, int32_t operand = 0)
-            : opcode(op), operand(operand) {}
+        Instruction(OpCode op, int32_t operand = 0, int32_t operand2 = 0)
+            : opcode(op), operand(operand), operand2(operand2) {}
     };
 
     class BytecodeFunction {
@@ -81,8 +82,8 @@ namespace Ryntra::VM {
         BytecodeFunction(const std::string &name, bool external = false, int32_t paramCount = 0)
             : name(name), isExternal(external), paramCount(paramCount) {}
 
-        void addInstruction(OpCode op, int32_t operand = 0) {
-            instructions.emplace_back(op, operand);
+        void addInstruction(OpCode op, int32_t operand = 0, int32_t operand2 = 0) {
+            instructions.emplace_back(op, operand, operand2);
         }
     };
 } // namespace Ryntra::VM

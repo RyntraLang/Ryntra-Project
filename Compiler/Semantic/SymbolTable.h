@@ -1,6 +1,8 @@
 #pragma once
 
 #include "SourceLocation/SourceRange.h"
+#include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -64,6 +66,10 @@ namespace Ryntra::Compiler::Semantic {
 
             // Maybe there's more in the future
         };
+
+        // Natural alignment (in bytes) of a type. Struct types also honour an
+        // explicit `[AlignAs(N)]` alignment.
+        inline int alignmentOf(const Type &type);
 
         class VoidType : public Type {
         public:
@@ -147,6 +153,22 @@ namespace Ryntra::Compiler::Semantic {
             // Source-declaration order of field names (deterministic layout for codegen).
             const std::vector<std::string> &getFieldOrder() const { return fieldOrder; }
 
+            // Explicit alignment requested by an `[AlignAs(N)]` annotation (0 = natural).
+            void setExplicitAlignment(int value) { explicitAlignment = value; }
+            int getExplicitAlignment() const { return explicitAlignment; }
+
+            // Effective alignment: the larger of the explicit alignment and the
+            // natural alignment of every field.
+            int getAlignment() const {
+                int result = explicitAlignment > 0 ? explicitAlignment : 1;
+                for (const auto &fieldName : fieldOrder) {
+                    auto it = fields.find(fieldName);
+                    if (it != fields.end() && it->second)
+                        result = std::max(result, alignmentOf(*it->second));
+                }
+                return result;
+            }
+
             // Member symbol table (fields and methods). The scope has `Scope::Kind::Class`.
             void defineMethod(std::shared_ptr<FunctionSymbol> method);
             std::shared_ptr<Symbol> lookupMember(const std::string &memberName) const;
@@ -159,7 +181,43 @@ namespace Ryntra::Compiler::Semantic {
             std::unordered_map<std::string, std::shared_ptr<Type>> fields;
             std::vector<std::string> fieldOrder;
             mutable std::shared_ptr<Scope> memberScope;
+            int explicitAlignment = 0;
         };
+
+        inline int alignmentOf(const Type &type) {
+            switch (type.getKind()) {
+            case TypeKind::Void:
+                return 1;
+            case TypeKind::Bool:
+            case TypeKind::Int8:
+            case TypeKind::UnsignedInt8:
+                return 1;
+            case TypeKind::Char:
+            case TypeKind::Int16:
+            case TypeKind::UnsignedInt16:
+                return 2;
+            case TypeKind::Int32:
+            case TypeKind::UnsignedInt32:
+            case TypeKind::Float32:
+                return 4;
+            case TypeKind::Int64:
+            case TypeKind::UnsignedInt64:
+            case TypeKind::Float64:
+                return 8;
+            case TypeKind::Float128:
+                return 16;
+            case TypeKind::String:
+            case TypeKind::Array:
+            case TypeKind::Reference:
+            case TypeKind::Pointer:
+            case TypeKind::Function:
+                return 8;
+            case TypeKind::Struct:
+                return static_cast<const StructType &>(type).getAlignment();
+            default:
+                return 1;
+            }
+        }
     } // namespace STType
 
     using TypePtr = std::shared_ptr<STType::Type>;

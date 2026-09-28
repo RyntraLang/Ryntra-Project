@@ -39,6 +39,7 @@ ContinueNode
 PrefixOpNode
 PostfixOpNode
 NewExpressionNode
+AlignofNode
 DeleteStatementNode
 FixedNode
 ModifierNode

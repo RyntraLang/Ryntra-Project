@@ -281,6 +281,9 @@ namespace Ryntra::Compiler {
         if (auto *newInitCtx = dynamic_cast<Ryntra::antlr::RyntraParser::NewWithInitExpressionContext *>(ctx)) {
             return visitNewWithInitExpression(newInitCtx);
         }
+        if (auto *alignofCtx = dynamic_cast<Ryntra::antlr::RyntraParser::AlignofExpressionContext *>(ctx)) {
+            return visitAlignofExpression(alignofCtx);
+        }
         if (auto *methodCallCtx = dynamic_cast<Ryntra::antlr::RyntraParser::MethodCallExpressionContext *>(ctx)) {
             return visitMethodCallExpression(methodCallCtx);
         }
@@ -778,6 +781,11 @@ namespace Ryntra::Compiler {
             args = visitArgumentList(ctx->argumentList())->getArguments();
         }
         return createNode<NewExpressionNode>(ctx, std::move(elemType), std::move(args));
+    }
+
+    std::shared_ptr<AlignofNode> ASTBuilder::visitAlignofExpression(antlr::RyntraParser::AlignofExpressionContext *ctx) {
+        auto type = visitTypeSpecifier(ctx->typeSpecifier());
+        return createNode<AlignofNode>(ctx, std::move(type));
     }
 
     std::shared_ptr<FixedNode> ASTBuilder::visitFixedStatement(antlr::RyntraParser::FixedStatementContext *ctx) {

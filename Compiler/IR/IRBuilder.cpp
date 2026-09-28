@@ -655,14 +655,14 @@ namespace Ryntra::IR {
     std::shared_ptr<Instruction> IRBuilder::createFieldPtr(const std::string &name,
                                                            std::shared_ptr<Type> structType,
                                                            std::shared_ptr<Value> basePtr,
-                                                           int fieldIndex,
+                                                           int fieldOffset,
                                                            std::shared_ptr<Type> fieldPtrType) {
         if (!basePtr)
             return nullptr;
 
-        auto indexValue = std::make_shared<ImmediateValue>(
-            Type::getInt32Type(), std::to_string(fieldIndex));
-        std::vector<std::shared_ptr<Value>> operands = {basePtr, indexValue};
+        auto offsetValue = std::make_shared<ImmediateValue>(
+            Type::getInt32Type(), std::to_string(fieldOffset));
+        std::vector<std::shared_ptr<Value>> operands = {basePtr, offsetValue};
 
         auto instruction = std::make_shared<Instruction>(
             Instruction::Opcode::FieldPtr,

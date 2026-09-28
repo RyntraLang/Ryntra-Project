@@ -148,7 +148,7 @@ namespace Ryntra::IR {
         std::shared_ptr<Instruction> createFieldPtr(const std::string &name,
                                                      std::shared_ptr<Type> structType,
                                                      std::shared_ptr<Value> basePtr,
-                                                     int fieldIndex,
+                                                     int fieldOffset,
                                                      std::shared_ptr<Type> fieldPtrType);
 
         void setInsertPoint(std::shared_ptr<BasicBlock> block);

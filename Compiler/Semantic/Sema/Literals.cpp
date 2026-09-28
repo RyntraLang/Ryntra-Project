@@ -33,6 +33,22 @@ namespace Ryntra::Compiler::Semantic {
         lastNode = typedNode;
     }
 
+    void SemanticAnalyzer::visit(AlignofNode &node) {
+        int alignment = 1;
+        if (auto typeSpecifier = node.getTypeSpecifier()) {
+            typeSpecifier->accept(*this);
+            if (lastType) {
+                alignment = STType::alignmentOf(*lastType);
+            }
+        }
+
+        auto stType = std::make_shared<STType::Int32Type>();
+        auto typedNode = std::make_shared<TypedIntegerLiteralNode>(
+            alignment, toTypedType(stType));
+        typedNode->setRange(node.getRange());
+        lastNode = typedNode;
+    }
+
     void SemanticAnalyzer::visit(LongLiteralNode &node) {
         auto stType = std::make_shared<STType::Int64Type>();
         auto typedNode = std::make_shared<TypedLongLiteralNode>(

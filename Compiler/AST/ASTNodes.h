@@ -677,6 +677,18 @@ namespace Ryntra::Compiler {
         std::vector<std::shared_ptr<ExpressionNode>> arguments;
     };
 
+    class AlignofNode : public ExpressionNode {
+    public:
+        explicit AlignofNode(std::shared_ptr<TypeSpecifierNode> type)
+            : type(std::move(type)) {}
+        std::shared_ptr<TypeSpecifierNode> getTypeSpecifier() const { return type; }
+        void accept(IVisitor &visitor) override;
+        std::string toString() const override;
+
+    private:
+        std::shared_ptr<TypeSpecifierNode> type;
+    };
+
     class DeleteStatementNode : public StatementNode {
     public:
         DeleteStatementNode(std::shared_ptr<ExpressionNode> expr) : expression(std::move(expr)) {}

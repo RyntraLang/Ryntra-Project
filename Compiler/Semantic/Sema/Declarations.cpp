@@ -99,6 +99,44 @@ namespace Ryntra::Compiler::Semantic {
         }
     }
 
+    void SemanticAnalyzer::applyStructAlignment(StructDeclarationNode &node,
+                                                const std::shared_ptr<STType::StructType> &structType) {
+        if (!structType) {
+            return;
+        }
+
+        for (const auto &annotation : node.getAnnotations()) {
+            if (!annotation || !annotation->getName()) {
+                continue;
+            }
+            if (annotation->getName()->getName() != "AlignAs") {
+                continue;
+            }
+
+            int value = 0;
+            bool valid = false;
+            if (annotation->getArguments() && annotation->getArguments()->getArguments().size() == 1) {
+                const auto &argument = annotation->getArguments()->getArguments()[0];
+                if (auto intLiteral = std::dynamic_pointer_cast<IntegerLiteralNode>(argument)) {
+                    value = intLiteral->getValue();
+                    valid = true;
+                } else if (auto longLiteral = std::dynamic_pointer_cast<LongLiteralNode>(argument)) {
+                    value = static_cast<int>(longLiteral->getValue());
+                    valid = true;
+                }
+            }
+
+            if (!valid || value <= 0 || (value & (value - 1)) != 0) {
+                ErrorHandler::getInstance().makeError(
+                    "[RCE108]: AlignAs requires a single positive power-of-two integer, e.g. [AlignAs(16)].",
+                    annotation->getRange());
+                continue;
+            }
+
+            structType->setExplicitAlignment(value);
+        }
+    }
+
     std::shared_ptr<FunctionSymbol> SemanticAnalyzer::resolveConstructor(
         const std::shared_ptr<STType::StructType> &structType,
         const std::vector<std::shared_ptr<TypedExpressionNode>> &typedArgs,
@@ -196,6 +234,7 @@ namespace Ryntra::Compiler::Semantic {
             }
 
             auto structSTType = std::make_shared<STType::StructType>(structName);
+            applyStructAlignment(*strct, structSTType);
             structTypes[structName] = structSTType;
             symbolTable.define(std::make_shared<TypeSymbol>(structName, structSTType), strct->getRange());
             registerStructMembers(structSTType, strct->getMemberList());
@@ -689,6 +728,7 @@ namespace Ryntra::Compiler::Semantic {
         }
         if (!structSTType) {
             structSTType = std::make_shared<STType::StructType>(structName);
+            applyStructAlignment(node, structSTType);
         }
 
         // Member symbols (fields/methods/constructors) were already registered
@@ -732,7 +772,8 @@ namespace Ryntra::Compiler::Semantic {
         currentStruct = savedStruct;
 
         auto typedStruct = std::make_shared<TypedStructDeclarationNode>(
-            structName, std::move(typedFields), std::move(typedConstructors), std::move(typedMethods));
+            structName, std::move(typedFields), std::move(typedConstructors), std::move(typedMethods),
+            structSTType->getExplicitAlignment());
         typedStruct->setRange(node.getRange());
         lastNode = typedStruct;
     }

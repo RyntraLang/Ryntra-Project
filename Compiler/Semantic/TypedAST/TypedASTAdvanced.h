@@ -765,14 +765,18 @@ namespace Ryntra::Compiler::Semantic {
         TypedStructDeclarationNode(std::string name,
                                    std::vector<std::shared_ptr<TypedFieldDeclarationNode>> fields,
                                    std::vector<std::shared_ptr<TypedConstructorDeclarationNode>> constructors,
-                                   std::vector<std::shared_ptr<TypedFunctionDefinitionNode>> methods)
+                                   std::vector<std::shared_ptr<TypedFunctionDefinitionNode>> methods,
+                                   int alignment = 0)
             : name(std::move(name)), fields(std::move(fields)),
-              constructors(std::move(constructors)), methods(std::move(methods)) {}
+              constructors(std::move(constructors)), methods(std::move(methods)),
+              alignment(alignment) {}
 
         const std::string &getName() const { return name; }
         const std::vector<std::shared_ptr<TypedFieldDeclarationNode>> &getFields() const { return fields; }
         const std::vector<std::shared_ptr<TypedConstructorDeclarationNode>> &getConstructors() const { return constructors; }
         const std::vector<std::shared_ptr<TypedFunctionDefinitionNode>> &getMethods() const { return methods; }
+        // Explicit `[AlignAs(N)]` alignment (0 = natural alignment).
+        int getAlignment() const { return alignment; }
 
         void accept(ITypedVisitor &visitor) override { visitor.visit(*this); }
         std::string toString() const override { return "TypedStructDeclaration(" + name + ")"; }
@@ -795,6 +799,7 @@ namespace Ryntra::Compiler::Semantic {
         std::vector<std::shared_ptr<TypedFieldDeclarationNode>> fields;
         std::vector<std::shared_ptr<TypedConstructorDeclarationNode>> constructors;
         std::vector<std::shared_ptr<TypedFunctionDefinitionNode>> methods;
+        int alignment = 0;
     };
 
     class TypedSelfExpressionNode : public TypedExpressionNode {

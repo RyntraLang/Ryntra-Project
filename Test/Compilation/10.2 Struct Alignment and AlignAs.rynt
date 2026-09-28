@@ -1,0 +1,46 @@
+public struct Inner {
+    public int a;
+    public long b;
+}
+
+[AlignAs(16)]
+public struct Packed {
+    public int x;
+    public int y;
+}
+
+public struct Mixed {
+    public bool flag;
+    public int value;
+    public long big;
+    public Inner nested;
+}
+
+public void main() {
+    __builtin_print(alignof(int)); __builtin_print("\n");
+    __builtin_print(alignof(long)); __builtin_print("\n");
+    __builtin_print(alignof(bool)); __builtin_print("\n");
+    __builtin_print(alignof(Inner)); __builtin_print("\n");
+    __builtin_print(alignof(Packed)); __builtin_print("\n");
+    __builtin_print(alignof(Mixed)); __builtin_print("\n");
+
+    Mixed m = Mixed();
+    m.flag = true;
+    m.value = 42;
+    m.big = 9000000000L;
+    m.nested = Inner();
+    m.nested.a = 7;
+    m.nested.b = 8L;
+    __builtin_print(m.value); __builtin_print("\n");
+    __builtin_print(m.nested.a); __builtin_print("\n");
+    __builtin_print(m.nested.b); __builtin_print("\n");
+    __builtin_print(m.big); __builtin_print("\n");
+
+    ptr<Mixed> p = new Mixed;
+    p.value = 99;
+    p.nested = Inner();
+    p.nested.a = 11;
+    __builtin_print(p.value); __builtin_print("\n");
+    __builtin_print(p.nested.a); __builtin_print("\n");
+    unsafe { delete p; }
+}

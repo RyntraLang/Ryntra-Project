@@ -56,6 +56,7 @@ namespace Ryntra::Compiler::Semantic {
         void visit(PtrExpressionNode &node) override;
         void visit(MethodCallNode &node) override;
         void visit(NewExpressionNode &node) override;
+        void visit(AlignofNode &node) override;
         void visit(DeleteStatementNode &node) override;
         void visit(FixedNode &node) override;
         void visit(StructDeclarationNode &node) override;
@@ -89,6 +90,11 @@ namespace Ryntra::Compiler::Semantic {
         // Duplicate fields / member signatures are diagnosed here.
         void registerStructMembers(const std::shared_ptr<STType::StructType> &structType,
                                    const std::shared_ptr<MemberListNode> &memberList);
+
+        // Read an `[AlignAs(N)]` annotation from a struct declaration and apply it to
+        // the semantic struct type. Reports a diagnostic and ignores invalid values.
+        void applyStructAlignment(StructDeclarationNode &node,
+                                  const std::shared_ptr<STType::StructType> &structType);
 
         // Build a TypePtr from a type-name string (resolves named struct types)
         TypePtr makeSTType(const std::string &name);

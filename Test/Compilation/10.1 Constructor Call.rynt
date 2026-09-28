@@ -1,0 +1,28 @@
+public struct Rectangle {
+    public int width;
+    public int height;
+
+    public Rectangle(int width, int height) {
+        self.width = width;
+        self.height = height;
+    }
+
+    public int getArea() {
+        return self.width * self.height;
+    }
+}
+
+public void main() {
+    Rectangle rect = Rectangle(100, 200);
+    __builtin_print(rect.getArea()); __builtin_print("\n");
+
+    ptr<Rectangle> rect2 = new Rectangle(200, 400);
+    __builtin_print(rect2.getArea()); __builtin_print("\n");
+
+    rect2.width = 5;
+    __builtin_print(rect2.getArea()); __builtin_print("\n");
+
+    unsafe {
+        delete rect2;
+    }
+}

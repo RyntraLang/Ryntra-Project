@@ -25,7 +25,7 @@ namespace Ryntra::VM {
 
         // Append a bytecode instruction, stamping it with the source range of the
         // IR instruction currently being lowered.
-        void emit(OpCode op, int32_t operand = 0);
+        void emit(OpCode op, int32_t operand = 0, int32_t operand2 = 0);
 
         int32_t addConstant(const VMValue &value);
         int32_t getFunctionIndex(const std::string &name);

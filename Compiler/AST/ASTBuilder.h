@@ -64,6 +64,7 @@ namespace Ryntra::Compiler {
         std::shared_ptr<RefExpressionNode> visitRefExpression(antlr::RyntraParser::RefExpressionContext *ctx);
         std::shared_ptr<NewExpressionNode> visitNewExpression(antlr::RyntraParser::NewExpressionContext *ctx);
         std::shared_ptr<NewExpressionNode> visitNewWithInitExpression(antlr::RyntraParser::NewWithInitExpressionContext *ctx);
+        std::shared_ptr<AlignofNode> visitAlignofExpression(antlr::RyntraParser::AlignofExpressionContext *ctx);
         std::shared_ptr<ExpressionNode> visitConditionalAndExpression(antlr::RyntraParser::ConditionalAndExpressionContext *ctx);
         std::shared_ptr<ExpressionNode> visitConditionalOrExpression(antlr::RyntraParser::ConditionalOrExpressionContext *ctx);
         std::shared_ptr<ComparisonNode> visitComparisonExpression(antlr::RyntraParser::ComparisonExpressionContext *ctx);

@@ -719,13 +719,13 @@ namespace Ryntra::VM {
                 auto ptrVal = pop();
                 if (ptrVal.isStructFieldRef()) {
                     auto ref = ptrVal.asStructFieldRef();
-                    if (ref.index >= 0 && static_cast<size_t>(ref.index) < ref.data->fields.size()) {
-                        ensureInitialized(ref.data->fields[ref.index],
+                    if (ref.data->inBounds(ref.offset)) {
+                        ensureInitialized(ref.data->at(ref.offset),
                                           "Use of an uninitialized struct field");
-                        push(ref.data->fields[ref.index]);
+                        push(ref.data->at(ref.offset));
                     } else {
                         trap(RuntimeErrorKind::InvalidPointer,
-                             "PtrLoad: invalid struct field index");
+                             "PtrLoad: invalid struct field offset " + std::to_string(ref.offset));
                     }
                 } else if (ptrVal.isStruct()) {
                     // Loading a whole struct yields the aggregate handle itself.
@@ -775,11 +775,11 @@ namespace Ryntra::VM {
                 auto ptrVal = pop();
                 if (ptrVal.isStructFieldRef()) {
                     auto ref = ptrVal.asStructFieldRef();
-                    if (ref.index >= 0 && static_cast<size_t>(ref.index) < ref.data->fields.size()) {
-                        ref.data->fields[ref.index] = val;
+                    if (ref.data->inBounds(ref.offset)) {
+                        ref.data->at(ref.offset) = val;
                     } else {
                         trap(RuntimeErrorKind::InvalidPointer,
-                             "PtrStore: invalid struct field index");
+                             "PtrStore: invalid struct field offset " + std::to_string(ref.offset));
                     }
                 } else if (ptrVal.isStruct()) {
                     // Assigning to a whole struct copies field values.
@@ -787,7 +787,7 @@ namespace Ryntra::VM {
                         trap(RuntimeErrorKind::TypeMismatch,
                              "PtrStore: cannot assign non-struct to struct");
                     }
-                    *ptrVal.asStruct() = *val.asStruct();
+                    ptrVal.asStruct()->assignFrom(*val.asStruct());
                 } else if (ptrVal.isHeapPointer()) {
                     int32_t slot = ptrVal.getHeapPointerSlot();
                     if (slot >= 0 && slot < static_cast<int32_t>(heap_.size())) {
@@ -919,9 +919,9 @@ namespace Ryntra::VM {
             }
 
             case OpCode::NewStruct: {
-                auto data = std::make_shared<StructData>();
-                if (inst.operand > 0)
-                    data->fields.resize(static_cast<size_t>(inst.operand), VMValue::uninitialized());
+                // operand = size in bytes, operand2 = alignment in bytes. The
+                // aligned allocation is handled by StructData itself.
+                auto data = std::make_shared<StructData>(inst.operand, inst.operand2);
                 push(VMValue(data));
                 break;
             }
@@ -934,9 +934,9 @@ namespace Ryntra::VM {
                     data = base.asStruct();
                 } else if (base.isStructFieldRef()) {
                     auto ref = base.asStructFieldRef();
-                    if (ref.index >= 0 && static_cast<size_t>(ref.index) < ref.data->fields.size() &&
-                        ref.data->fields[ref.index].isStruct()) {
-                        data = ref.data->fields[ref.index].asStruct();
+                    if (ref.data->inBounds(ref.offset) &&
+                        ref.data->at(ref.offset).isStruct()) {
+                        data = ref.data->at(ref.offset).asStruct();
                     } else {
                         trap(RuntimeErrorKind::TypeMismatch,
                              "FieldRef: nested field is not a struct");
@@ -960,8 +960,11 @@ namespace Ryntra::VM {
                     trap(RuntimeErrorKind::TypeMismatch, "FieldRef on non-struct value");
                 }
 
-                if (inst.operand < 0 || static_cast<size_t>(inst.operand) >= data->fields.size()) {
-                    trap(RuntimeErrorKind::InvalidPointer, "FieldRef: field index out of range");
+                // The operand is the byte offset produced by the compiler's Struct
+                // Layout phase; FieldRef never computes an offset itself.
+                if (!data->inBounds(inst.operand)) {
+                    trap(RuntimeErrorKind::InvalidPointer,
+                         "FieldRef: field offset out of range");
                 }
                 push(VMValue(StructFieldRef{data, inst.operand}));
                 break;
@@ -1046,16 +1049,17 @@ namespace Ryntra::VM {
                                            ? opcodeNames[idx]
                                            : "???";
                     std::cout << "  " << i << ": " << name;
-                    if (inst.opcode == OpCode::LoadConst ||
-                        inst.opcode == OpCode::LoadFunc ||
-                        inst.opcode == OpCode::StoreLocal ||
-                        inst.opcode == OpCode::LoadLocal ||
-                        inst.opcode == OpCode::Jmp ||
-                        inst.opcode == OpCode::Jz ||
-                        inst.opcode == OpCode::RefCreate ||
-                        inst.opcode == OpCode::PtrCreate ||
-                        inst.opcode == OpCode::NewStruct ||
-                        inst.opcode == OpCode::FieldRef) {
+                    if (inst.opcode == OpCode::NewStruct) {
+                        std::cout << " size=" << inst.operand << " align=" << inst.operand2;
+                    } else if (inst.opcode == OpCode::LoadConst ||
+                               inst.opcode == OpCode::LoadFunc ||
+                               inst.opcode == OpCode::StoreLocal ||
+                               inst.opcode == OpCode::LoadLocal ||
+                               inst.opcode == OpCode::Jmp ||
+                               inst.opcode == OpCode::Jz ||
+                               inst.opcode == OpCode::RefCreate ||
+                               inst.opcode == OpCode::PtrCreate ||
+                               inst.opcode == OpCode::FieldRef) {
                         std::cout << " " << inst.operand;
                     } else if (inst.opcode == OpCode::Call || inst.opcode == OpCode::BCall) {
                         std::cout << " " << inst.operand;

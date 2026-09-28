@@ -27,6 +27,7 @@
             <Keyword>ptr</Keyword>
             <Keyword>unsafe</Keyword>
             <Keyword>fixed</Keyword>
+            <Keyword>alignof</Keyword>
         </Keywords>
         <Match>
             <Number>\d+(?:\.\d+)?[a-zA-Z]*</Number>

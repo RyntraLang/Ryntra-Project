@@ -11,7 +11,7 @@ namespace Ryntra::IR {
     // A default value attached to a struct field, used to initialize instances
     // created by `alloca` of a struct type.
     struct StructFieldDefault {
-        int32_t index;
+        int32_t offset;
         std::shared_ptr<Value> value;
     };
 
@@ -64,7 +64,7 @@ namespace Ryntra::IR {
             PinArray,          // pin an array for fixed statement
             UnpinArray,        // unpin an array for fixed statement
             PtrFromArray,      // create a pointer to array element 0 from an array value
-            FieldPtr           // compute pointer to a struct field: (ptr<Struct>, fieldIndex)
+            FieldPtr           // compute pointer to a struct field: (ptr<Struct>, byteOffset)
         };
         // clang-format on
 
@@ -480,7 +480,7 @@ namespace Ryntra::IR {
                     result += operands_[0]->getReferenceName();
                 }
                 if (operands_.size() >= 2) {
-                    result += ", i32 0, i32 ";
+                    result += ", i32 ";
                     if (auto *imm = dynamic_cast<ImmediateValue *>(operands_[1].get()))
                         result += imm->getLiteralValue();
                     else

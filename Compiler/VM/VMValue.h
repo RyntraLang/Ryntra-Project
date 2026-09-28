@@ -1,7 +1,9 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <new>
 #include <string>
 #include <variant>
 #include <vector>
@@ -16,14 +18,13 @@ namespace Ryntra::VM {
         int32_t index;
     };
 
-    // Aggregate storage: a struct instance owns a vector of field values.
-    struct StructData {
-        std::vector<VMValue> fields;
-    };
-    // A reference to one field of a struct instance (produced by fieldptr).
+    struct StructData;
+
+    // A reference to one field of a struct instance (produced by FieldRef). The
+    // offset is a byte offset into the struct's storage.
     struct StructFieldRef {
         std::shared_ptr<StructData> data;
-        int32_t index;
+        int32_t offset;
     };
 
     // Runtime value representation
@@ -117,5 +118,65 @@ namespace Ryntra::VM {
         Type type_;
         ValueData data_;
         std::shared_ptr<ArrayData> ptrArrayData_; // optional: non-null for array element pointers
+    };
+
+    // Aggregate storage: a struct instance owns a byte-addressable array of field
+    // slots (one slot per byte). Field values are addressed by the byte offsets
+    // computed by the compiler's Struct Layout phase, so no offset arithmetic is
+    // performed at runtime. The backing storage is allocated with the struct's
+    // alignment so the instance satisfies its alignment requirement.
+    struct StructData {
+        VMValue *fields = nullptr;
+        int32_t size = 0;      // total size in bytes
+        int32_t alignment = 1; // alignment in bytes
+
+        StructData(int32_t sizeBytes, int32_t align)
+            : size(sizeBytes > 0 ? sizeBytes : 0),
+              alignment(align > 0 ? align : 1) {
+            if (size <= 0)
+                return;
+            fields = static_cast<VMValue *>(
+                allocate(static_cast<size_t>(size) * sizeof(VMValue), static_cast<size_t>(alignment)));
+            for (int32_t i = 0; i < size; ++i)
+                new (&fields[i]) VMValue(VMValue::uninitialized());
+        }
+
+        ~StructData() {
+            if (!fields)
+                return;
+            for (int32_t i = 0; i < size; ++i)
+                fields[i].~VMValue();
+            deallocate(fields);
+        }
+
+        StructData(const StructData &) = delete;
+        StructData &operator=(const StructData &) = delete;
+
+        // Field-wise copy used when a whole struct value is assigned to another.
+        StructData &assignFrom(const StructData &other) {
+            int32_t count = size < other.size ? size : other.size;
+            for (int32_t i = 0; i < count; ++i)
+                fields[i] = other.fields[i];
+            return *this;
+        }
+
+        VMValue &at(int32_t offset) { return fields[offset]; }
+        const VMValue &at(int32_t offset) const { return fields[offset]; }
+
+        bool inBounds(int32_t offset) const { return offset >= 0 && offset < size; }
+
+    private:
+        static void *allocate(size_t bytes, size_t align) {
+            if (align <= static_cast<size_t>(__STDCPP_DEFAULT_NEW_ALIGNMENT__))
+                return ::operator new(bytes);
+            return ::operator new(bytes, std::align_val_t(align));
+        }
+
+        void deallocate(void *ptr) const {
+            if (static_cast<size_t>(alignment) <= static_cast<size_t>(__STDCPP_DEFAULT_NEW_ALIGNMENT__))
+                ::operator delete(ptr);
+            else
+                ::operator delete(ptr, std::align_val_t(static_cast<size_t>(alignment)));
+        }
     };
 } // namespace Ryntra::VM
