@@ -92,7 +92,7 @@ set(VM_SOURCE
         ${CMAKE_SOURCE_DIR}/Utility/ErrorHandler/InternalCompilerError.h
 )
 
-add_executable(rync
+add_executable(RyntraCompiler
         main.cpp
         ${ANTLR_SOURCE}
         ${AST_SOURCE}
@@ -102,17 +102,21 @@ add_executable(rync
         ${VM_SOURCE}
 )
 
-add_dependencies(rync GenerateAllNodesVisitor)
+add_dependencies(RyntraCompiler GenerateAllNodesVisitor)
 
-target_link_libraries(rync PRIVATE antlr4_shared)
+target_link_libraries(RyntraCompiler PRIVATE antlr4_shared)
 
 # Remove this line to silence the deprecated warning of getLocation()/setLocation()
-target_compile_definitions(rync PRIVATE RYNTRA_ENABLE_LOCATION_DEPRECATION)
+target_compile_definitions(RyntraCompiler PRIVATE RYNTRA_ENABLE_LOCATION_DEPRECATION)
 
-target_include_directories(rync PRIVATE
+target_include_directories(RyntraCompiler PRIVATE
         ${CMAKE_SOURCE_DIR}/ANTLR/antlr-generated
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/Utility
         ${CMAKE_SOURCE_DIR}/
         ${CMAKE_BINARY_DIR} #< Avoid pollute the source tree
+)
+
+set_target_properties(RyntraCompiler PROPERTIES
+        OUTPUT_NAME "rync"
 )
