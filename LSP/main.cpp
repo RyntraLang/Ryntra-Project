@@ -1,3 +1,4 @@
+#include "Diagnostics/CompilerDiagnosticsProvider.h"
 #include "JsonRPCTransport/Transport.h"
 #include "LSPServer.h"
 
@@ -16,7 +17,8 @@ int main() {
 #endif
 
     Ryntra::LSP::JsonRpcTransport transport(std::cin, std::cout);
-    Ryntra::LSP::LSPServer server(transport);
+    Ryntra::LSP::CompilerDiagnosticsProvider diagnosticsProvider;
+    Ryntra::LSP::LSPServer server(transport, diagnosticsProvider);
 
     return server.run();
 }

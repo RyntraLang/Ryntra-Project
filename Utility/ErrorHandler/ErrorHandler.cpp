@@ -47,6 +47,10 @@ namespace Ryntra::Compiler {
         makeWarning(desc, SourceRange(location));
     }
 
+    void ErrorHandler::clear() {
+        errorObjects.clear();
+    }
+
     void ErrorHandler::print() const {
         for (const auto &i : errorObjects) {
             const std::string location = formatRange(i.range);

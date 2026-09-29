@@ -1,5 +1,6 @@
 #include "LSPServer.h"
 
+#include "Diagnostics/Diagnostic.h"
 #include "Protocol/Initialize.h"
 #include "Protocol/Protocol.h"
 
@@ -13,7 +14,8 @@ namespace Ryntra::LSP {
         constexpr int kExitFailure = 1;
     } // anonymous namespace
 
-    LSPServer::LSPServer(JsonRpcTransport &transport) : transport(transport) {
+    LSPServer::LSPServer(JsonRpcTransport &transport, DiagnosticsProvider &diagnosticsProvider)
+        : transport(transport), diagnosticsProvider(diagnosticsProvider) {
     }
 
     int LSPServer::run() {
@@ -143,18 +145,37 @@ namespace Ryntra::LSP {
         document.text = params.textDocument.text;
 
         documentManager.open(document);
+        publishDiagnostics(document.uri);
     }
 
     void LSPServer::handleDidChange(const Protocol::DidChangeTextDocumentParams &params) {
         if (!documentManager.change(params.textDocument.uri, params.textDocument.version, params.contentChanges)) {
             std::print(std::cerr, "Received didChange for an unopened document: {}\n", params.textDocument.uri);
         }
+
+        publishDiagnostics(params.textDocument.uri);
     }
 
     void LSPServer::handleDidClose(const Protocol::DidCloseTextDocumentParams &params) {
         if (!documentManager.close(params.textDocument.uri)) {
             std::print(std::cerr, "Received didClose for an unopened document: {}\n", params.textDocument.uri);
         }
+
+        publishDiagnostics(params.textDocument.uri);
+    }
+
+    void LSPServer::publishDiagnostics(const std::string &uri) {
+        std::vector<Diagnostic> diagnostics;
+
+        if (const Document *document = documentManager.get(uri)) {
+            try {
+                diagnostics = diagnosticsProvider.analyze(uri, document->text);
+            } catch (const std::exception &exception) {
+                std::print(std::cerr, "Failed to compute diagnostics for {}: {}\n", uri, exception.what());
+            }
+        }
+
+        sendNotification(std::string(Protocol::kTextDocumentPublishDiagnostics), serialize(PublishDiagnosticsParams{uri, diagnostics}));
     }
 
     void LSPServer::sendResponse(const nlohmann::json &id, const nlohmann::json &result) {
@@ -163,5 +184,9 @@ namespace Ryntra::LSP {
 
     void LSPServer::sendError(const nlohmann::json &id, JsonRPCErrorCode code, const std::string &message, const nlohmann::json &data) {
         transport.writeMessage(serialize(JsonRPCErrorResponse{id, JsonRPCError{code, message, data}}));
+    }
+
+    void LSPServer::sendNotification(const std::string &method, const nlohmann::json &params) {
+        transport.writeMessage(serialize(JsonRPCNotification{method, params}));
     }
 } // namespace Ryntra::LSP

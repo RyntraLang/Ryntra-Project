@@ -78,9 +78,9 @@ Semantic Note:
 - ✅ V0.1.1.8 `AlignAs()` annotation and `alignof` keyword
 - ✅ V0.1.2.1 LSP message model, JSON-RPC transport, initialize/shutdown/exit
 - ✅ V0.1.2.2 Document manager, didOpen/didChange/didClose
-- ❌ V0.1.2.3 Diagnostics
-- ❌ V0.1.2.4 Document Symbols, Workspace Symbols
-- ❌ V0.1.2.5 Definition, Hover
+- ✅ V0.1.2.3 Diagnostics
+- ❌ V0.1.2.4 Definition, Hover
+- ❌ V0.1.2.5 Document Symbols
 - ❌ V0.1.2.6 Completion
 - ❌ V0.1.2.7 Find References, Rename
 - ❌ V0.1.2.8 Semantic Tokens

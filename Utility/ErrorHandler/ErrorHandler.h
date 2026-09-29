@@ -79,6 +79,10 @@ namespace Ryntra::Compiler {
         /// \code [TYPE] (line:column-end.line:end.column) DESC \endcode for a span.
         void print() const;
 
+        /// \brief Remove every collected error object so the handler can be reused
+        /// for a fresh analysis pass (e.g. by the language server).
+        void clear();
+
         ErrorHandler(const ErrorHandler &) = delete;
         ErrorHandler &operator=(const ErrorHandler &) = delete;
         ErrorHandler(ErrorHandler &&) = delete;

@@ -6,6 +6,12 @@ set(antlr4-runtime_DIR "C:/vcpkg/vcpkg/vcpkg/installed/x64-windows/share/antlr4-
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 find_package(antlr4-runtime REQUIRED)
 
+# Make the imported runtime visible to sibling projects (e.g. the language
+# server) so they can deploy the shared library next to their executable.
+if (TARGET antlr4_shared)
+    set_target_properties(antlr4_shared PROPERTIES IMPORTED_GLOBAL TRUE)
+endif ()
+
 set(GEN_SCRIPT_DIR "${CMAKE_SOURCE_DIR}/Scripts/GenAllNodesVisitor")
 set(GEN_SCRIPT "${GEN_SCRIPT_DIR}/GenAllNodesVisitor.py")
 set(GEN_NODES_LIST "${GEN_SCRIPT_DIR}/NodesList.txt")
@@ -92,30 +98,39 @@ set(VM_SOURCE
         ${CMAKE_SOURCE_DIR}/Utility/ErrorHandler/InternalCompilerError.h
 )
 
-add_executable(RyntraCompiler
-        main.cpp
+# The reusable front-end (lexer, parser, AST and semantic analysis). It is shared
+# by the command line compiler and the language server, so neither has to
+# recompile the front-end sources and the language server can depend on a stable
+# library boundary instead of the compiler executable.
+add_library(RyntraFrontend STATIC
         ${ANTLR_SOURCE}
         ${AST_SOURCE}
         ${UTILITY_SOURCE}
         ${SEMANTIC_SOURCE}
-        ${IR_SOURCE}
-        ${VM_SOURCE}
 )
 
-add_dependencies(RyntraCompiler GenerateAllNodesVisitor)
+add_dependencies(RyntraFrontend GenerateAllNodesVisitor)
 
-target_link_libraries(RyntraCompiler PRIVATE antlr4_shared)
+target_link_libraries(RyntraFrontend PUBLIC antlr4_shared)
 
 # Remove this line to silence the deprecated warning of getLocation()/setLocation()
-target_compile_definitions(RyntraCompiler PRIVATE RYNTRA_ENABLE_LOCATION_DEPRECATION)
+target_compile_definitions(RyntraFrontend PUBLIC RYNTRA_ENABLE_LOCATION_DEPRECATION)
 
-target_include_directories(RyntraCompiler PRIVATE
+target_include_directories(RyntraFrontend PUBLIC
         ${CMAKE_SOURCE_DIR}/ANTLR/antlr-generated
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/Utility
         ${CMAKE_SOURCE_DIR}/
         ${CMAKE_BINARY_DIR} #< Avoid pollute the source tree
 )
+
+add_executable(RyntraCompiler
+        main.cpp
+        ${IR_SOURCE}
+        ${VM_SOURCE}
+)
+
+target_link_libraries(RyntraCompiler PRIVATE RyntraFrontend)
 
 set_target_properties(RyntraCompiler PROPERTIES
         OUTPUT_NAME "rync"
