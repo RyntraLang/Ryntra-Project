@@ -92,6 +92,24 @@ namespace Ryntra::LSP {
             state = ServerState::Exited;
             return;
         }
+
+        // The 'initialized' notification and all other notifications are dropped
+        // until the client has finished the initialization handshake.
+        if (state != ServerState::Initialized) {
+            return;
+        }
+
+        try {
+            if (notification.method == Protocol::kTextDocumentDidOpen) {
+                handleDidOpen(Protocol::parseDidOpenParams(notification.params));
+            } else if (notification.method == Protocol::kTextDocumentDidChange) {
+                handleDidChange(Protocol::parseDidChangeParams(notification.params));
+            } else if (notification.method == Protocol::kTextDocumentDidClose) {
+                handleDidClose(Protocol::parseDidCloseParams(notification.params));
+            }
+        } catch (const JsonRPCException &exception) {
+            std::print(std::cerr, "Invalid notification '{}': {}\n", notification.method, exception.what());
+        }
     }
 
     void LSPServer::handleInitialize(const JsonRPCRequest &request) {
@@ -115,6 +133,28 @@ namespace Ryntra::LSP {
         state = ServerState::ShuttingDown;
 
         sendResponse(request.id, nullptr);
+    }
+
+    void LSPServer::handleDidOpen(const Protocol::DidOpenTextDocumentParams &params) {
+        Document document;
+        document.uri = params.textDocument.uri;
+        document.languageId = params.textDocument.languageId;
+        document.version = params.textDocument.version;
+        document.text = params.textDocument.text;
+
+        documentManager.open(document);
+    }
+
+    void LSPServer::handleDidChange(const Protocol::DidChangeTextDocumentParams &params) {
+        if (!documentManager.change(params.textDocument.uri, params.textDocument.version, params.contentChanges)) {
+            std::print(std::cerr, "Received didChange for an unopened document: {}\n", params.textDocument.uri);
+        }
+    }
+
+    void LSPServer::handleDidClose(const Protocol::DidCloseTextDocumentParams &params) {
+        if (!documentManager.close(params.textDocument.uri)) {
+            std::print(std::cerr, "Received didClose for an unopened document: {}\n", params.textDocument.uri);
+        }
     }
 
     void LSPServer::sendResponse(const nlohmann::json &id, const nlohmann::json &result) {

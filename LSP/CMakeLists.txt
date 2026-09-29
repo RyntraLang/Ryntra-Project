@@ -6,13 +6,18 @@ set(nlohmann_json_DIR "C:/vcpkg/vcpkg/vcpkg/installed/x64-windows/share/nlohmann
 add_executable(RyntraLSP main.cpp
         LSP/LSPServer.h
         LSP/LSPServer.cpp
+        LSP/DocumentManager.h
+        LSP/DocumentManager.cpp
         LSP/JsonRPC/JsonRPC.cpp
         LSP/JsonRPC/JsonRPC.h
         LSP/JsonRPCTransport/Transport.h
         LSP/JsonRPCTransport/Transport.cpp
         LSP/Protocol/Protocol.h
+        LSP/Protocol/LSPTypes.h
         LSP/Protocol/Initialize.h
         LSP/Protocol/Initialize.cpp
+        LSP/Protocol/TextDocument.h
+        LSP/Protocol/TextDocument.cpp
 )
 
 set_target_properties(RyntraLSP PROPERTIES
