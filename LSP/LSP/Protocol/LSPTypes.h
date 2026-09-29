@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <nlohmann/json.hpp>
 
 namespace Ryntra::LSP::Protocol {
     struct Position {
@@ -12,4 +13,8 @@ namespace Ryntra::LSP::Protocol {
         Position start;
         Position end;
     };
+
+    nlohmann::json serialize(const Position &position);
+
+    nlohmann::json serialize(const Range &range);
 } // namespace Ryntra::LSP::Protocol

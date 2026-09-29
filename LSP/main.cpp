@@ -1,4 +1,5 @@
-#include "Diagnostics/CompilerDiagnosticsProvider.h"
+#include "Analysis/LanguageProviders.h"
+#include "Compiler/CompilerLanguageProvider.h"
 #include "JsonRPCTransport/Transport.h"
 #include "LSPServer.h"
 
@@ -17,8 +18,14 @@ int main() {
 #endif
 
     Ryntra::LSP::JsonRpcTransport transport(std::cin, std::cout);
-    Ryntra::LSP::CompilerDiagnosticsProvider diagnosticsProvider;
-    Ryntra::LSP::LSPServer server(transport, diagnosticsProvider);
+
+    Ryntra::LSP::CompilerLanguageProvider languageProvider;
+    Ryntra::LSP::LanguageProviders providers;
+    providers.diagnostics = &languageProvider;
+    providers.hover = &languageProvider;
+    providers.definition = &languageProvider;
+
+    Ryntra::LSP::LSPServer server(transport, providers);
 
     return server.run();
 }

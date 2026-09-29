@@ -112,4 +112,11 @@ namespace Ryntra::LSP::Protocol {
         result.textDocument.uri = stringField(field(params, "textDocument"), "uri");
         return result;
     }
+
+    TextDocumentPositionParams parseTextDocumentPositionParams(const nlohmann::json &params) {
+        TextDocumentPositionParams result;
+        result.textDocument.uri = stringField(field(params, "textDocument"), "uri");
+        result.position = parsePosition(field(params, "position"));
+        return result;
+    }
 } // namespace Ryntra::LSP::Protocol

@@ -1,50 +1,9 @@
 #include "DocumentManager.h"
 
+#include "Text/TextOffset.h"
+
 namespace Ryntra::LSP {
     namespace {
-        std::size_t offsetAt(const std::string &text, const Protocol::Position &position) {
-            std::uint32_t line = 0;
-            std::uint32_t character = 0;
-            std::size_t index = 0;
-
-            while (index < text.size() && line < position.line) {
-                if (text[index] == '\n') {
-                    ++line;
-                }
-
-                ++index;
-            }
-
-            while (index < text.size() && character < position.character) {
-                const unsigned char byte = static_cast<unsigned char>(text[index]);
-
-                if (byte == '\r' || byte == '\n') {
-                    break;
-                }
-
-                std::size_t length = 1;
-                std::uint32_t units = 1;
-
-                if ((byte & 0xE0u) == 0xC0u) {
-                    length = 2;
-                } else if ((byte & 0xF0u) == 0xE0u) {
-                    length = 3;
-                } else if ((byte & 0xF8u) == 0xF0u) {
-                    length = 4;
-                    units = 2;
-                }
-
-                if (character + units > position.character) {
-                    break;
-                }
-
-                character += units;
-                index += length;
-            }
-
-            return index;
-        }
-
         void applyChange(std::string &text, const Protocol::TextDocumentContentChangeEvent &change) {
             if (!change.range.has_value()) {
                 text = change.text;

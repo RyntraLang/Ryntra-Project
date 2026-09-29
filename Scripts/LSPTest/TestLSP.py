@@ -1,13 +1,58 @@
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-EXE_PATH = REPO_ROOT / "cmake-build-debug" / "LSP" / "ryntls.exe"
+DEFAULT_EXE = REPO_ROOT / "cmake-build-debug" / "LSP" / "ryntra-lsp.exe"
+EXE_PATH = Path(os.environ.get("RYNTRA_LSP_EXE", DEFAULT_EXE))
 
 VALID_SOURCE = 'public void main() {\n    __builtin_print("Hello World");\n}\n'
 INVALID_SOURCE = "public void main() {\n"
+NO_MAIN_SOURCE = 'public void greet() {\n    __builtin_print("hi");\n}\n'
+NO_MAIN_WITH_ERROR_SOURCE = "public void greet() {\n    __builtin_print(missing);\n}\n"
+SYMBOL_SOURCE = (
+    "public void greet() {\n"
+    '    __builtin_print("hi");\n'
+    "}\n"
+    "public void main() {\n"
+    "    int value = 42;\n"
+    "    __builtin_print(value);\n"
+    "    greet();\n"
+    "}\n"
+)
+STRUCT_SOURCE = (
+    "public struct Rectangle {\n"
+    "    public int width;\n"
+    "    public int height;\n"
+    "\n"
+    "    public int getArea() {\n"
+    "        return self.width * self.height;\n"
+    "    }\n"
+    "}\n"
+    "\n"
+    "public void main() {\n"
+    "    Rectangle rect = Rectangle(100, 200);\n"
+    "    __builtin_print(rect.getArea());\n"
+    "    rect.width = 5;\n"
+    "}\n"
+)
+CONSTRUCTOR_SOURCE = (
+    "public struct Rectangle {\n"
+    "    public int width;\n"
+    "    public int height;\n"
+    "\n"
+    "    public Rectangle(int width, int height) {\n"
+    "        self.width = width;\n"
+    "    }\n"
+    "}\n"
+    "\n"
+    "public void main() {\n"
+    "    Rectangle rect = Rectangle(100, 200);\n"
+    "    __builtin_print(rect.width);\n"
+    "}\n"
+)
 
 def frame(message):
     body = json.dumps(message).encode("utf-8")
@@ -111,7 +156,7 @@ def test_unknown_method():
     server = ServerSession()
 
     server.request(initialize_request())
-    response = server.request({"jsonrpc": "2.0", "id": 2, "method": "textDocument/hover", "params": {}})
+    response = server.request({"jsonrpc": "2.0", "id": 2, "method": "textDocument/references", "params": {}})
     assert response is not None, "no response to unknown method"
     assert response["error"]["code"] == -32601, "expected MethodNotFound"
 
@@ -210,6 +255,14 @@ def did_open(uri, text, version=1):
     }
 
 
+def request_message(request_id, method, params):
+    return {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}
+
+
+def position_params(uri, line, character):
+    return {"textDocument": {"uri": uri}, "position": {"line": line, "character": character}}
+
+
 def error_diagnostics(notification):
     assert notification["method"] == "textDocument/publishDiagnostics", notification
     return [diagnostic for diagnostic in notification["params"]["diagnostics"] if diagnostic["severity"] == 1]
@@ -284,6 +337,119 @@ def test_diagnostics_cleared_on_close():
     server.wait()
 
 
+def test_hover_and_definition():
+    server = ServerSession()
+
+    initialization = server.request(initialize_request())
+    capabilities = initialization["result"]["capabilities"]
+    assert capabilities.get("hoverProvider") is True, capabilities
+    assert capabilities.get("definitionProvider") is True, capabilities
+
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    uri = "file:///symbols.rynt"
+    server.send(did_open(uri, SYMBOL_SOURCE))
+
+    hover = server.request(request_message(10, "textDocument/hover", position_params(uri, 5, 22)))
+    value = hover["result"]["contents"]["value"]
+    assert "value" in value and "int" in value, value
+
+    definition = server.request(request_message(11, "textDocument/definition", position_params(uri, 5, 22)))
+    declared = definition["result"]["range"]
+    assert declared["start"]["line"] == 4, declared
+    assert declared["start"]["character"] <= 8 <= declared["end"]["character"], declared
+
+    function_hover = server.request(request_message(12, "textDocument/hover", position_params(uri, 6, 5)))
+    assert "greet" in function_hover["result"]["contents"]["value"]
+
+    function_definition = server.request(request_message(13, "textDocument/definition", position_params(uri, 6, 5)))
+    assert function_definition["result"]["range"]["start"]["line"] == 0, function_definition
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
+def test_struct_member_hover_and_definition():
+    server = ServerSession()
+
+    server.request(initialize_request())
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    uri = "file:///struct.rynt"
+    server.send(did_open(uri, STRUCT_SOURCE))
+
+    member_hover = server.request(request_message(20, "textDocument/hover", position_params(uri, 12, 10)))
+    member_text = member_hover["result"]["contents"]["value"]
+    assert "width" in member_text and "int" in member_text, member_text
+
+    member_definition = server.request(request_message(21, "textDocument/definition", position_params(uri, 12, 10)))
+    assert member_definition["result"]["range"]["start"]["line"] == 1, member_definition
+
+    method_hover = server.request(request_message(22, "textDocument/hover", position_params(uri, 11, 26)))
+    method_text = method_hover["result"]["contents"]["value"]
+    assert "getArea" in method_text, method_text
+
+    method_definition = server.request(request_message(23, "textDocument/definition", position_params(uri, 11, 26)))
+    assert method_definition["result"]["range"]["start"]["line"] == 4, method_definition
+
+    self_definition = server.request(request_message(24, "textDocument/definition", position_params(uri, 5, 21)))
+    assert self_definition["result"]["range"]["start"]["line"] == 1, self_definition
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
+def test_constructor_and_parameter_symbols():
+    server = ServerSession()
+
+    server.request(initialize_request())
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    uri = "file:///constructor.rynt"
+    server.send(did_open(uri, CONSTRUCTOR_SOURCE))
+
+    call_hover = server.request(request_message(30, "textDocument/hover", position_params(uri, 10, 22)))
+    call_text = call_hover["result"]["contents"]["value"]
+    assert "(constructor)" in call_text, call_text
+
+    call_definition = server.request(request_message(31, "textDocument/definition", position_params(uri, 10, 22)))
+    assert call_definition["result"]["range"]["start"]["line"] == 4, call_definition
+
+    declaration_hover = server.request(request_message(32, "textDocument/hover", position_params(uri, 4, 12)))
+    assert "(constructor)" in declaration_hover["result"]["contents"]["value"], declaration_hover
+
+    parameter_hover = server.request(request_message(33, "textDocument/hover", position_params(uri, 4, 26)))
+    parameter_text = parameter_hover["result"]["contents"]["value"]
+    assert "(parameter)" in parameter_text, parameter_text
+
+    parameter_definition = server.request(request_message(34, "textDocument/definition", position_params(uri, 5, 22)))
+    assert parameter_definition["result"]["range"]["start"]["line"] == 4, parameter_definition
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
+def test_editor_mode_suppresses_main_check_only():
+    server = ServerSession()
+
+    server.request(initialize_request())
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    clean_uri = "file:///no-main.rynt"
+    server.send(did_open(clean_uri, NO_MAIN_SOURCE))
+    clean = server.read()
+    assert not error_diagnostics(clean), error_diagnostics(clean)
+
+    error_uri = "file:///no-main-error.rynt"
+    server.send(did_open(error_uri, NO_MAIN_WITH_ERROR_SOURCE))
+    broken = server.read()
+    messages = [diagnostic["message"] for diagnostic in error_diagnostics(broken)]
+    assert any("RCE014" in message for message in messages), messages
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
 TESTS = [
     ("initialize/shutdown/exit", test_initialize_shutdown_exit),
     ("request before initialize", test_request_before_initialize),
@@ -296,6 +462,10 @@ TESTS = [
     ("diagnostics clean for valid source", test_diagnostics_clean_for_valid_source),
     ("diagnostics update on change", test_diagnostics_update_on_change),
     ("diagnostics cleared on close", test_diagnostics_cleared_on_close),
+    ("hover and definition", test_hover_and_definition),
+    ("struct member hover and definition", test_struct_member_hover_and_definition),
+    ("constructor and parameter symbols", test_constructor_and_parameter_symbols),
+    ("editor mode suppresses main check only", test_editor_mode_suppresses_main_check_only),
 ]
 
 def main():

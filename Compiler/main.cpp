@@ -106,6 +106,7 @@ int main(int argc, char **argv) {
         }
 
         Ryntra::Compiler::Semantic::SemanticAnalyzer analyzer;
+        analyzer.setCompilationMode(Ryntra::Compiler::CompilationMode::CLI);
         analyzer.analyze(ast);
 
         Ryntra::Compiler::ErrorHandler::getInstance().print();

@@ -26,6 +26,8 @@ namespace Ryntra::LSP::Protocol {
 
     struct ServerCapabilities {
         TextDocumentSyncKind textDocumentSync = TextDocumentSyncKind::None;
+        bool hoverProvider = false;
+        bool definitionProvider = false;
     };
 
     struct ServerInfo {

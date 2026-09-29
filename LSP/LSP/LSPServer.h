@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Diagnostics/DiagnosticsProvider.h"
+#include "Analysis/LanguageProviders.h"
 #include "DocumentManager.h"
 #include "JsonRPC/JsonRPC.h"
 #include "JsonRPCTransport/Transport.h"
@@ -18,7 +18,7 @@ namespace Ryntra::LSP {
 
     class LSPServer {
     public:
-        LSPServer(JsonRpcTransport &transport, DiagnosticsProvider &diagnosticsProvider);
+        LSPServer(JsonRpcTransport &transport, const LanguageProviders &providers);
 
         int run();
 
@@ -39,6 +39,10 @@ namespace Ryntra::LSP {
 
         void handleDidClose(const Protocol::DidCloseTextDocumentParams &params);
 
+        void handleHover(const JsonRPCRequest &request);
+
+        void handleDefinition(const JsonRPCRequest &request);
+
         void publishDiagnostics(const std::string &uri);
 
         void sendResponse(const nlohmann::json &id, const nlohmann::json &result);
@@ -48,7 +52,7 @@ namespace Ryntra::LSP {
         void sendNotification(const std::string &method, const nlohmann::json &params);
 
         JsonRpcTransport &transport;
-        DiagnosticsProvider &diagnosticsProvider;
+        LanguageProviders providers;
         DocumentManager documentManager;
         ServerState state = ServerState::Uninitialized;
         bool shutdownRequested = false;

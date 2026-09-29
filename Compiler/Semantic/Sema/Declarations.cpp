@@ -24,7 +24,7 @@ namespace Ryntra::Compiler::Semantic {
                     continue;
                 }
                 field->getType()->accept(*this);
-                structType->addField(fieldName, lastType ? lastType : makeSTType("unknown"));
+                structType->addField(fieldName, lastType ? lastType : makeSTType("unknown"), field->getRange());
             }
         }
 
@@ -68,7 +68,7 @@ namespace Ryntra::Compiler::Semantic {
                 }
 
                 structType->defineMethod(std::make_shared<FunctionSymbol>(
-                    methodName, returnType, std::move(paramTypes)));
+                    methodName, returnType, std::move(paramTypes)), method->getRange());
             } else if (auto ctor = std::dynamic_pointer_cast<ConstructorDeclarationNode>(member)) {
                 std::vector<TypePtr> paramTypes;
                 if (ctor->getParameterList()) {
@@ -94,7 +94,7 @@ namespace Ryntra::Compiler::Semantic {
                 }
 
                 structType->defineMethod(std::make_shared<FunctionSymbol>(
-                    ctor->getName()->getName(), structType, std::move(paramTypes)));
+                    ctor->getName()->getName(), structType, std::move(paramTypes)), ctor->getRange());
             }
         }
     }
@@ -363,27 +363,31 @@ namespace Ryntra::Compiler::Semantic {
             symbolTable.define(overloadSet, SourceRange(SourceLocation{0, 0, 0}));
         }
 
-        auto mainSym = symbolTable.resolve("main");
-        if (!mainSym) {
-            ErrorHandler::getInstance().makeError(
-                "[RCE002]: 'main' function is not defined.", node.getRange());
-        } else if (auto overloadSet = std::dynamic_pointer_cast<OverloadSet>(mainSym)) {
-            if (overloadSet->getFunctions().empty()) {
+        // Program-entry checks only matter when producing an executable, so they are
+        // disabled for editor analysis (the language server).
+        if (compilationMode == CompilationMode::CLI) {
+            auto mainSym = symbolTable.resolve("main");
+            if (!mainSym) {
+                ErrorHandler::getInstance().makeError(
+                    "[RCE002]: 'main' function is not defined.", node.getRange());
+            } else if (auto overloadSet = std::dynamic_pointer_cast<OverloadSet>(mainSym)) {
+                if (overloadSet->getFunctions().empty()) {
+                    ErrorHandler::getInstance().makeError(
+                        "[RCE003]: 'main' is not a function.", node.getRange());
+                } else {
+                    auto mainFuncSym = overloadSet->getFunctions()[0];
+                    if (!mainFuncSym->getReturnType()) {
+                        ErrorHandler::getInstance().makeError(
+                            "[RCE004]: 'main' function must have a return type.", node.getRange());
+                    } else if (mainFuncSym->getReturnType()->getKind() != STType::TypeKind::Void) {
+                        ErrorHandler::getInstance().makeError(
+                            "[RCE005]: 'main' function must return 'void'.", node.getRange());
+                    }
+                }
+            } else {
                 ErrorHandler::getInstance().makeError(
                     "[RCE003]: 'main' is not a function.", node.getRange());
-            } else {
-                auto mainFuncSym = overloadSet->getFunctions()[0];
-                if (!mainFuncSym->getReturnType()) {
-                    ErrorHandler::getInstance().makeError(
-                        "[RCE004]: 'main' function must have a return type.", node.getRange());
-                } else if (mainFuncSym->getReturnType()->getKind() != STType::TypeKind::Void) {
-                    ErrorHandler::getInstance().makeError(
-                        "[RCE005]: 'main' function must return 'void'.", node.getRange());
-                }
             }
-        } else {
-            ErrorHandler::getInstance().makeError(
-                "[RCE003]: 'main' is not a function.", node.getRange());
         }
 
         std::vector<std::shared_ptr<TypedFunctionDefinitionNode>> typedFunctions;
@@ -424,7 +428,7 @@ namespace Ryntra::Compiler::Semantic {
                 auto paramName = param->getName()->getName();
                 if (paramType) {
                     symbolTable.define(
-                        std::make_shared<VariableSymbol>(paramName, paramType),
+                        std::make_shared<VariableSymbol>(paramName, paramType, true),
                         param->getRange());
                     typedParams.push_back(
                         std::make_shared<TypedParameterNode>(paramName, toTypedType(paramType)));
@@ -826,7 +830,7 @@ namespace Ryntra::Compiler::Semantic {
                 auto paramName = param->getName()->getName();
                 if (paramType) {
                     symbolTable.define(
-                        std::make_shared<VariableSymbol>(paramName, paramType),
+                        std::make_shared<VariableSymbol>(paramName, paramType, true),
                         param->getRange());
                     typedParams.push_back(
                         std::make_shared<TypedParameterNode>(paramName, toTypedType(paramType)));

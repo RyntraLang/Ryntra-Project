@@ -3,6 +3,7 @@
 #include "../AST/ASTNodes.h"
 #include "../AST/ASTVisitor.h"
 #include "Compiler/GeneratedHeader/AllNodesVisitor.h"
+#include "CompilationMode.h"
 #include "SymbolTable.h"
 #include "TypedAST.h"
 #include <unordered_map>
@@ -12,8 +13,17 @@ namespace Ryntra::Compiler::Semantic {
     public:
         SemanticAnalyzer() = default;
 
+        explicit SemanticAnalyzer(CompilationMode mode) : compilationMode(mode) {}
+
+        void setCompilationMode(CompilationMode mode) { compilationMode = mode; }
+
+        [[nodiscard]] CompilationMode getCompilationMode() const { return compilationMode; }
+
         void analyze(const std::shared_ptr<IASTNode> &root);
         std::shared_ptr<TypedProgramNode> getTypedAST() const { return typedProgram; }
+
+        // Declaration index collected during analysis, for tooling (hover / definition).
+        [[nodiscard]] const std::vector<SymbolDefinition> &getDefinitions() const { return symbolTable.getDefinitions(); }
 
         // Visitor methods
         void visit(ProgramNode &node) override;
@@ -67,6 +77,7 @@ namespace Ryntra::Compiler::Semantic {
         void visit(MemberAssignmentNode &node) override;
 
     private:
+        CompilationMode compilationMode = CompilationMode::CLI;
         SymbolTable symbolTable;
         std::shared_ptr<TypedProgramNode> typedProgram;
 

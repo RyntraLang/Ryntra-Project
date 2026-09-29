@@ -43,6 +43,8 @@ namespace Ryntra::LSP::Protocol {
     nlohmann::json serializeInitializeResult(const InitializeResult &result) {
         nlohmann::json capabilities = {
             {"textDocumentSync", static_cast<std::int32_t>(result.capabilities.textDocumentSync)},
+            {"hoverProvider", result.capabilities.hoverProvider},
+            {"definitionProvider", result.capabilities.definitionProvider},
         };
 
         nlohmann::json serverInfo = {

@@ -13,6 +13,11 @@ namespace Ryntra::LSP::Protocol {
         std::string uri;
     };
 
+    struct TextDocumentPositionParams {
+        TextDocumentIdentifier textDocument;
+        Position position;
+    };
+
     struct VersionedTextDocumentIdentifier {
         std::string uri;
         std::int32_t version = 0;
@@ -50,4 +55,6 @@ namespace Ryntra::LSP::Protocol {
     DidChangeTextDocumentParams parseDidChangeParams(const nlohmann::json &params);
 
     DidCloseTextDocumentParams parseDidCloseParams(const nlohmann::json &params);
+
+    TextDocumentPositionParams parseTextDocumentPositionParams(const nlohmann::json &params);
 } // namespace Ryntra::LSP::Protocol

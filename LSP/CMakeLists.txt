@@ -8,12 +8,22 @@ add_executable(RyntraLSP main.cpp
         LSP/LSPServer.cpp
         LSP/DocumentManager.h
         LSP/DocumentManager.cpp
+        LSP/Analysis/DefinitionProvider.h
+        LSP/Analysis/Hover.h
+        LSP/Analysis/Hover.cpp
+        LSP/Analysis/HoverProvider.h
+        LSP/Analysis/LanguageProviders.h
+        LSP/Analysis/Location.h
+        LSP/Analysis/Location.cpp
+        LSP/Compiler/CompilerLanguageProvider.h
+        LSP/Compiler/CompilerLanguageProvider.cpp
         LSP/JsonRPC/JsonRPC.cpp
         LSP/JsonRPC/JsonRPC.h
         LSP/JsonRPCTransport/Transport.h
         LSP/JsonRPCTransport/Transport.cpp
         LSP/Protocol/Protocol.h
         LSP/Protocol/LSPTypes.h
+        LSP/Protocol/LSPTypes.cpp
         LSP/Protocol/Initialize.h
         LSP/Protocol/Initialize.cpp
         LSP/Protocol/TextDocument.h
@@ -21,8 +31,8 @@ add_executable(RyntraLSP main.cpp
         LSP/Diagnostics/Diagnostic.h
         LSP/Diagnostics/Diagnostic.cpp
         LSP/Diagnostics/DiagnosticsProvider.h
-        LSP/Diagnostics/CompilerDiagnosticsProvider.h
-        LSP/Diagnostics/CompilerDiagnosticsProvider.cpp
+        LSP/Text/TextOffset.h
+        LSP/Text/TextOffset.cpp
 )
 
 set_target_properties(RyntraLSP PROPERTIES
@@ -34,7 +44,7 @@ target_link_libraries(RyntraLSP PRIVATE nlohmann_json::nlohmann_json RyntraFront
 target_include_directories(RyntraLSP PRIVATE LSP/)
 
 # The compiler front-end is linked against the ANTLR shared runtime; place it
-# next to the executable so `ryntls` can be launched directly.
+# next to the executable so the language server can be launched directly.
 add_custom_command(TARGET RyntraLSP POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 $<TARGET_FILE:antlr4_shared>

@@ -22,24 +22,27 @@ namespace Ryntra::Compiler::Semantic {
             }
         }
 
-        void StructType::addField(const std::string &fieldName, std::shared_ptr<Type> fieldType) {
+        void StructType::addField(const std::string &fieldName, std::shared_ptr<Type> fieldType, const SourceRange &range) {
             if (fields.find(fieldName) == fields.end()) {
                 fieldOrder.push_back(fieldName);
             }
             fields[fieldName] = fieldType;
             ensureMemberScope();
             memberScope->symbols[fieldName] = std::make_shared<FieldSymbol>(fieldName, std::move(fieldType));
+            memberDeclarations.emplace_back(fieldName, range);
         }
 
-        void StructType::defineMethod(std::shared_ptr<FunctionSymbol> method) {
+        void StructType::defineMethod(std::shared_ptr<FunctionSymbol> method, const SourceRange &range) {
             ensureMemberScope();
 
+            const std::string methodName = method->getName();
             auto &symbols = memberScope->symbols;
-            auto iterator = symbols.find(method->getName());
+            auto iterator = symbols.find(methodName);
             if (iterator == symbols.end()) {
-                auto overloadSet = std::make_shared<OverloadSet>(method->getName());
+                auto overloadSet = std::make_shared<OverloadSet>(methodName);
                 overloadSet->addFunction(std::move(method));
                 symbols[overloadSet->getName()] = std::move(overloadSet);
+                memberDeclarations.emplace_back(methodName, range);
                 return;
             }
 
@@ -60,14 +63,16 @@ namespace Ryntra::Compiler::Semantic {
                     }
                 }
                 overloadSet->addFunction(std::move(method));
+                memberDeclarations.emplace_back(methodName, range);
                 return;
             }
 
             // A member with the same name is not an overload set (e.g. a field):
             // replace it with a fresh overload set for the method.
-            auto overloadSet = std::make_shared<OverloadSet>(method->getName());
+            auto overloadSet = std::make_shared<OverloadSet>(methodName);
             overloadSet->addFunction(std::move(method));
             symbols[overloadSet->getName()] = std::move(overloadSet);
+            memberDeclarations.emplace_back(methodName, range);
         }
 
         std::shared_ptr<Symbol> StructType::lookupMember(const std::string &memberName) const {
@@ -150,11 +155,13 @@ namespace Ryntra::Compiler::Semantic {
             return;
         }
         auto &currentScope = scopes.back();
-        if (currentScope->find(symbol->getName()) != nullptr) {
-            ErrorHandler::getInstance().makeError("[RCE017]: Symbol '" + symbol->getName() + "' is already defined in the current scope.", range);
+        const std::string name = symbol->getName();
+        if (currentScope->find(name) != nullptr) {
+            ErrorHandler::getInstance().makeError("[RCE017]: Symbol '" + name + "' is already defined in the current scope.", range);
             return;
         }
-        currentScope->symbols[symbol->getName()] = std::move(symbol);
+        currentScope->symbols[name] = symbol;
+        definitions.push_back({name, range, std::move(symbol)});
     }
 
     std::shared_ptr<Symbol> SymbolTable::resolve(const std::string &name) {

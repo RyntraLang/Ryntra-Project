@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace Ryntra::Compiler::Semantic {
@@ -144,7 +145,8 @@ namespace Ryntra::Compiler::Semantic {
             const std::string &getName() const { return name; }
 
             // Registers a field type and the matching FieldSymbol in the member scope.
-            void addField(const std::string &fieldName, std::shared_ptr<Type> fieldType);
+            // The optional range records where the field was declared (for tooling).
+            void addField(const std::string &fieldName, std::shared_ptr<Type> fieldType, const SourceRange &range = {});
             std::shared_ptr<Type> getField(const std::string &fieldName) const {
                 auto it = fields.find(fieldName);
                 return it == fields.end() ? nullptr : it->second;
@@ -170,9 +172,13 @@ namespace Ryntra::Compiler::Semantic {
             }
 
             // Member symbol table (fields and methods). The scope has `Scope::Kind::Class`.
-            void defineMethod(std::shared_ptr<FunctionSymbol> method);
+            void defineMethod(std::shared_ptr<FunctionSymbol> method, const SourceRange &range = {});
             std::shared_ptr<Symbol> lookupMember(const std::string &memberName) const;
             Scope &getMemberScope() const;
+
+            // Declaration ranges of registered members (fields, methods, constructors),
+            // in registration order, for go-to-definition / hover.
+            const std::vector<std::pair<std::string, SourceRange>> &getMemberDeclarations() const { return memberDeclarations; }
 
         private:
             void ensureMemberScope() const;
@@ -181,6 +187,7 @@ namespace Ryntra::Compiler::Semantic {
             std::unordered_map<std::string, std::shared_ptr<Type>> fields;
             std::vector<std::string> fieldOrder;
             mutable std::shared_ptr<Scope> memberScope;
+            std::vector<std::pair<std::string, SourceRange>> memberDeclarations;
             int explicitAlignment = 0;
         };
 
@@ -258,14 +265,16 @@ namespace Ryntra::Compiler::Semantic {
 
     class VariableSymbol : public Symbol {
     public:
-        VariableSymbol(std::string name, TypePtr type)
-            : Symbol(std::move(name)), type(std::move(type)) {}
+        VariableSymbol(std::string name, TypePtr type, bool parameter = false)
+            : Symbol(std::move(name)), type(std::move(type)), parameter(parameter) {}
 
         const TypePtr &getType() const { return type; }
+        bool isParameter() const { return parameter; }
         SymbolKind getKind() const override { return SymbolKind::Variable; }
 
     private:
         TypePtr type;
+        bool parameter = false;
     };
 
     class FieldSymbol : public Symbol {
@@ -333,6 +342,14 @@ namespace Ryntra::Compiler::Semantic {
         std::unordered_map<std::string, std::shared_ptr<Symbol>> symbols;
     };
 
+    /// \brief A symbol declaration captured while analysing, kept for tooling
+    /// (go-to-definition / hover). Holds the declaration range and the symbol.
+    struct SymbolDefinition {
+        std::string name;
+        SourceRange range;
+        std::shared_ptr<Symbol> symbol;
+    };
+
     class SymbolTable {
     public:
         SymbolTable();
@@ -343,11 +360,15 @@ namespace Ryntra::Compiler::Semantic {
         void define(std::shared_ptr<Symbol> symbol, const SourceRange &range);
         std::shared_ptr<Symbol> resolve(const std::string &name);
 
+        // Every declaration registered through define(), in source order.
+        [[nodiscard]] const std::vector<SymbolDefinition> &getDefinitions() const { return definitions; }
+
         // True if the symbol is an entity whose address can be taken
         // (a variable or a function; `Type`/`Field` symbols are not addressable).
         static bool isAddressable(const std::shared_ptr<Symbol> &symbol);
 
     private:
         std::vector<std::unique_ptr<Scope>> scopes;
+        std::vector<SymbolDefinition> definitions;
     };
 } // namespace Ryntra::Compiler::Semantic

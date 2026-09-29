@@ -1,5 +1,7 @@
 #include "LSPServer.h"
 
+#include "Analysis/Hover.h"
+#include "Analysis/Location.h"
 #include "Diagnostics/Diagnostic.h"
 #include "Protocol/Initialize.h"
 #include "Protocol/Protocol.h"
@@ -14,8 +16,8 @@ namespace Ryntra::LSP {
         constexpr int kExitFailure = 1;
     } // anonymous namespace
 
-    LSPServer::LSPServer(JsonRpcTransport &transport, DiagnosticsProvider &diagnosticsProvider)
-        : transport(transport), diagnosticsProvider(diagnosticsProvider) {
+    LSPServer::LSPServer(JsonRpcTransport &transport, const LanguageProviders &providers)
+        : transport(transport), providers(providers) {
     }
 
     int LSPServer::run() {
@@ -86,6 +88,16 @@ namespace Ryntra::LSP {
             return;
         }
 
+        if (request.method == Protocol::kTextDocumentHover) {
+            handleHover(request);
+            return;
+        }
+
+        if (request.method == Protocol::kTextDocumentDefinition) {
+            handleDefinition(request);
+            return;
+        }
+
         sendError(request.id, JsonRPCErrorCode::MethodNotFound, "Method not found: " + request.method);
     }
 
@@ -119,6 +131,8 @@ namespace Ryntra::LSP {
 
         Protocol::InitializeResult result;
         result.capabilities.textDocumentSync = Protocol::TextDocumentSyncKind::Full;
+        result.capabilities.hoverProvider = true;
+        result.capabilities.definitionProvider = true;
         result.serverInfo = {std::string(Protocol::kServerName), std::string(Protocol::kServerVersion)};
 
         sendResponse(request.id, Protocol::serializeInitializeResult(result));
@@ -164,12 +178,54 @@ namespace Ryntra::LSP {
         publishDiagnostics(params.textDocument.uri);
     }
 
+    void LSPServer::handleHover(const JsonRPCRequest &request) {
+        try {
+            const Protocol::TextDocumentPositionParams params = Protocol::parseTextDocumentPositionParams(request.params);
+            const Document *document = documentManager.get(params.textDocument.uri);
+
+            if (document == nullptr || providers.hover == nullptr) {
+                sendResponse(request.id, nullptr);
+                return;
+            }
+
+            const std::optional<Hover> hover = providers.hover->hover(params.textDocument.uri, document->text, params.position);
+            sendResponse(request.id, hover.has_value() ? serialize(*hover) : nlohmann::json(nullptr));
+        } catch (const JsonRPCException &exception) {
+            const JsonRPCError &error = exception.getError();
+            sendError(request.id, error.code, error.message, error.data);
+        } catch (const std::exception &exception) {
+            std::print(std::cerr, "Failed to compute hover: {}\n", exception.what());
+            sendResponse(request.id, nullptr);
+        }
+    }
+
+    void LSPServer::handleDefinition(const JsonRPCRequest &request) {
+        try {
+            const Protocol::TextDocumentPositionParams params = Protocol::parseTextDocumentPositionParams(request.params);
+            const Document *document = documentManager.get(params.textDocument.uri);
+
+            if (document == nullptr || providers.definition == nullptr) {
+                sendResponse(request.id, nullptr);
+                return;
+            }
+
+            const std::optional<Location> location = providers.definition->definition(params.textDocument.uri, document->text, params.position);
+            sendResponse(request.id, location.has_value() ? serialize(*location) : nlohmann::json(nullptr));
+        } catch (const JsonRPCException &exception) {
+            const JsonRPCError &error = exception.getError();
+            sendError(request.id, error.code, error.message, error.data);
+        } catch (const std::exception &exception) {
+            std::print(std::cerr, "Failed to compute definition: {}\n", exception.what());
+            sendResponse(request.id, nullptr);
+        }
+    }
+
     void LSPServer::publishDiagnostics(const std::string &uri) {
         std::vector<Diagnostic> diagnostics;
 
-        if (const Document *document = documentManager.get(uri)) {
+        if (const Document *document = documentManager.get(uri); document != nullptr && providers.diagnostics != nullptr) {
             try {
-                diagnostics = diagnosticsProvider.analyze(uri, document->text);
+                diagnostics = providers.diagnostics->analyze(uri, document->text);
             } catch (const std::exception &exception) {
                 std::print(std::cerr, "Failed to compute diagnostics for {}: {}\n", uri, exception.what());
             }
