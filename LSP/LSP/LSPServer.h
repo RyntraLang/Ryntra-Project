@@ -43,6 +43,10 @@ namespace Ryntra::LSP {
 
         void handleDefinition(const JsonRPCRequest &request);
 
+        void handleDocumentSymbol(const JsonRPCRequest &request);
+
+        void handleCompletion(const JsonRPCRequest &request);
+
         void publishDiagnostics(const std::string &uri);
 
         void sendResponse(const nlohmann::json &id, const nlohmann::json &result);

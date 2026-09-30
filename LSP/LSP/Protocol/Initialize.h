@@ -4,6 +4,7 @@
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace Ryntra::LSP::Protocol {
     enum class TextDocumentSyncKind : std::int32_t {
@@ -28,6 +29,9 @@ namespace Ryntra::LSP::Protocol {
         TextDocumentSyncKind textDocumentSync = TextDocumentSyncKind::None;
         bool hoverProvider = false;
         bool definitionProvider = false;
+        bool documentSymbolProvider = false;
+        bool completionProvider = false;
+        std::vector<std::string> completionTriggerCharacters;
     };
 
     struct ServerInfo {

@@ -12,6 +12,16 @@ VALID_SOURCE = 'public void main() {\n    __builtin_print("Hello World");\n}\n'
 INVALID_SOURCE = "public void main() {\n"
 NO_MAIN_SOURCE = 'public void greet() {\n    __builtin_print("hi");\n}\n'
 NO_MAIN_WITH_ERROR_SOURCE = "public void greet() {\n    __builtin_print(missing);\n}\n"
+INCOMPLETE_MEMBER_SOURCE = (
+    "public struct Rectangle {\n"
+    "    public int width;\n"
+    "    public int height;\n"
+    "}\n"
+    "public void main() {\n"
+    "    Rectangle r = Rectangle(1);\n"
+    "    r.\n"
+    "}\n"
+)
 SYMBOL_SOURCE = (
     "public void greet() {\n"
     '    __builtin_print("hi");\n'
@@ -450,6 +460,98 @@ def test_editor_mode_suppresses_main_check_only():
     server.wait()
 
 
+def test_document_symbols():
+    server = ServerSession()
+
+    initialization = server.request(initialize_request())
+    capabilities = initialization["result"]["capabilities"]
+    assert capabilities.get("documentSymbolProvider") is True, capabilities
+    assert "completionProvider" in capabilities, capabilities
+
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    uri = "file:///outline.rynt"
+    server.send(did_open(uri, STRUCT_SOURCE))
+
+    response = server.request(request_message(40, "textDocument/documentSymbol", {"textDocument": {"uri": uri}}))
+    symbols = {symbol["name"]: symbol for symbol in response["result"]}
+
+    assert "Rectangle" in symbols, symbols
+    assert symbols["Rectangle"]["kind"] == 23, symbols["Rectangle"]
+
+    children = {child["name"]: child for child in symbols["Rectangle"]["children"]}
+    assert set(children) == {"width", "height", "getArea"}, children
+    assert children["width"]["kind"] == 8, children["width"]
+    assert children["getArea"]["kind"] == 6, children["getArea"]
+
+    assert symbols["main"]["kind"] == 12, symbols["main"]
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
+def test_completion():
+    server = ServerSession()
+
+    server.request(initialize_request())
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    uri = "file:///completion.rynt"
+    server.send(did_open(uri, STRUCT_SOURCE))
+
+    member_response = server.request(request_message(41, "textDocument/completion", position_params(uri, 12, 9)))
+    member_labels = {item["label"] for item in member_response["result"]}
+    assert member_labels == {"width", "height", "getArea"}, member_labels
+
+    top_response = server.request(request_message(42, "textDocument/completion", position_params(uri, 8, 0)))
+    top_labels = {item["label"] for item in top_response["result"]}
+    assert {"Rectangle", "main", "public", "struct", "int", "string", "print", "Fn"} <= top_labels, top_labels
+    assert "rect" not in top_labels, top_labels
+    for bogus in ("char", "double", "float", "private", "protected", "fn"):
+        assert bogus not in top_labels, (bogus, top_labels)
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
+def test_completion_respects_scope():
+    server = ServerSession()
+
+    server.request(initialize_request())
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    uri = "file:///scope.rynt"
+    server.send(did_open(uri, SYMBOL_SOURCE))
+
+    inside_main = server.request(request_message(43, "textDocument/completion", position_params(uri, 5, 5)))
+    inside_main_labels = {item["label"] for item in inside_main["result"]}
+    assert "value" in inside_main_labels, inside_main_labels
+
+    inside_greet = server.request(request_message(44, "textDocument/completion", position_params(uri, 1, 5)))
+    inside_greet_labels = {item["label"] for item in inside_greet["result"]}
+    assert "value" not in inside_greet_labels, inside_greet_labels
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
+def test_completion_on_incomplete_member_access():
+    server = ServerSession()
+
+    server.request(initialize_request())
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    uri = "file:///incomplete-member.rynt"
+    server.send(did_open(uri, INCOMPLETE_MEMBER_SOURCE))
+
+    response = server.request(request_message(45, "textDocument/completion", position_params(uri, 6, 6)))
+    labels = {item["label"] for item in response["result"]}
+    assert {"width", "height"} <= labels, labels
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
 TESTS = [
     ("initialize/shutdown/exit", test_initialize_shutdown_exit),
     ("request before initialize", test_request_before_initialize),
@@ -466,6 +568,10 @@ TESTS = [
     ("struct member hover and definition", test_struct_member_hover_and_definition),
     ("constructor and parameter symbols", test_constructor_and_parameter_symbols),
     ("editor mode suppresses main check only", test_editor_mode_suppresses_main_check_only),
+    ("document symbols", test_document_symbols),
+    ("completion", test_completion),
+    ("completion respects scope", test_completion_respects_scope),
+    ("completion on incomplete member access", test_completion_on_incomplete_member_access),
 ]
 
 def main():

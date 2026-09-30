@@ -45,7 +45,14 @@ namespace Ryntra::LSP::Protocol {
             {"textDocumentSync", static_cast<std::int32_t>(result.capabilities.textDocumentSync)},
             {"hoverProvider", result.capabilities.hoverProvider},
             {"definitionProvider", result.capabilities.definitionProvider},
+            {"documentSymbolProvider", result.capabilities.documentSymbolProvider},
         };
+
+        if (result.capabilities.completionProvider) {
+            capabilities["completionProvider"] = {
+                {"triggerCharacters", result.capabilities.completionTriggerCharacters},
+            };
+        }
 
         nlohmann::json serverInfo = {
             {"name", result.serverInfo.name},

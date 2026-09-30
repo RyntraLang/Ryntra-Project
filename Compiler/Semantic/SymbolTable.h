@@ -326,6 +326,9 @@ namespace Ryntra::Compiler::Semantic {
             Class
         } kind;
 
+        // Source span of the construct that opened this scope (for tooling).
+        SourceRange range;
+
         std::shared_ptr<Symbol> find(const std::string &name) {
             auto iterator = symbols.find(name);
             if (iterator != symbols.end()) {
@@ -343,18 +346,23 @@ namespace Ryntra::Compiler::Semantic {
     };
 
     /// \brief A symbol declaration captured while analysing, kept for tooling
-    /// (go-to-definition / hover). Holds the declaration range and the symbol.
+    /// (go-to-definition / hover / completion). Holds the declaration range, the
+    /// symbol, and the scope it is visible in.
     struct SymbolDefinition {
         std::string name;
         SourceRange range;
         std::shared_ptr<Symbol> symbol;
+        // True for symbols in the global scope (always visible).
+        bool global = true;
+        // Span of the enclosing scope, used to decide visibility at a position.
+        SourceRange scopeRange;
     };
 
     class SymbolTable {
     public:
         SymbolTable();
 
-        void enterScope(Scope::Kind kind = Scope::Kind::Global);
+        void enterScope(Scope::Kind kind = Scope::Kind::Global, const SourceRange &range = {});
         void exitScope();
 
         void define(std::shared_ptr<Symbol> symbol, const SourceRange &range);

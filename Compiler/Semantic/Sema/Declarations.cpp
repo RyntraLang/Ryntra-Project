@@ -418,7 +418,7 @@ namespace Ryntra::Compiler::Semantic {
 
         auto funcName = node.getName()->getName();
 
-        symbolTable.enterScope(Scope::Kind::Function);
+        symbolTable.enterScope(Scope::Kind::Function, node.getRange());
 
         std::vector<std::shared_ptr<TypedParameterNode>> typedParams;
         if (node.getParameterList()) {
@@ -820,7 +820,7 @@ namespace Ryntra::Compiler::Semantic {
     void SemanticAnalyzer::visit(ConstructorDeclarationNode &node) {
         auto ctorName = node.getName()->getName();
 
-        symbolTable.enterScope(Scope::Kind::Function);
+        symbolTable.enterScope(Scope::Kind::Function, node.getRange());
 
         std::vector<std::shared_ptr<TypedParameterNode>> typedParams;
         if (node.getParameterList()) {

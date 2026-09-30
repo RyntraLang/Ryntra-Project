@@ -24,6 +24,8 @@ int main() {
     providers.diagnostics = &languageProvider;
     providers.hover = &languageProvider;
     providers.definition = &languageProvider;
+    providers.documentSymbols = &languageProvider;
+    providers.completion = &languageProvider;
 
     Ryntra::LSP::LSPServer server(transport, providers);
 

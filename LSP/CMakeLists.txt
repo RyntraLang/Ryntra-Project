@@ -8,7 +8,13 @@ add_executable(RyntraLSP main.cpp
         LSP/LSPServer.cpp
         LSP/DocumentManager.h
         LSP/DocumentManager.cpp
+        LSP/Analysis/Completion.h
+        LSP/Analysis/Completion.cpp
+        LSP/Analysis/CompletionProvider.h
         LSP/Analysis/DefinitionProvider.h
+        LSP/Analysis/DocumentSymbol.h
+        LSP/Analysis/DocumentSymbol.cpp
+        LSP/Analysis/DocumentSymbolProvider.h
         LSP/Analysis/Hover.h
         LSP/Analysis/Hover.cpp
         LSP/Analysis/HoverProvider.h

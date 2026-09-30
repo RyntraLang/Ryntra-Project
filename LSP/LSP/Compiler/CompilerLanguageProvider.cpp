@@ -11,7 +11,11 @@
 #include <antlr/RyntraParser.h>
 #include <antlr4-runtime.h>
 
+#include <algorithm>
+#include <cctype>
 #include <memory>
+#include <string_view>
+#include <unordered_set>
 #include <vector>
 
 namespace Ryntra::LSP {
@@ -379,6 +383,309 @@ namespace Ryntra::LSP {
             const bool callContext = next < text.size() && text[next] == '(';
             return resolveSymbol(index, identifier.name, offsetAt(text, position), memberContext, callContext);
         }
+
+        bool isMemberAccess(const std::string &text, const std::size_t offset) {
+            std::size_t index = std::min(offset, text.size());
+
+            while (index > 0) {
+                const unsigned char byte = static_cast<unsigned char>(text[index - 1]);
+
+                if (std::isalnum(byte) != 0 || byte == '_') {
+                    --index;
+                } else {
+                    break;
+                }
+            }
+
+            while (index > 0 && (text[index - 1] == ' ' || text[index - 1] == '\t')) {
+                --index;
+            }
+
+            return index > 0 && text[index - 1] == '.';
+        }
+
+        struct SanitizedSource {
+            std::string text;
+            std::size_t offset = 0;
+        };
+
+        // Completion is requested while the user is mid-typing, so the document can be
+        // momentarily invalid (e.g. `rect.`). Replace the incomplete member name with a
+        // placeholder so the front-end can still parse and index the rest of the file.
+        SanitizedSource sanitizeForCompletion(const std::string &text, const Protocol::Position &position) {
+            const std::size_t offset = std::min(offsetAt(text, position), text.size());
+
+            std::size_t start = offset;
+            while (start > 0) {
+                const unsigned char byte = static_cast<unsigned char>(text[start - 1]);
+
+                if (std::isalnum(byte) != 0 || byte == '_') {
+                    --start;
+                } else {
+                    break;
+                }
+            }
+
+            std::size_t end = offset;
+            while (end < text.size()) {
+                const unsigned char byte = static_cast<unsigned char>(text[end]);
+
+                if (std::isalnum(byte) != 0 || byte == '_') {
+                    ++end;
+                } else {
+                    break;
+                }
+            }
+
+            std::size_t before = start;
+            while (before > 0 && (text[before - 1] == ' ' || text[before - 1] == '\t')) {
+                --before;
+            }
+
+            if (before == 0 || text[before - 1] != '.') {
+                return {text, offset};
+            }
+
+            static const std::string placeholder = "__completion";
+
+            std::string result = text;
+            result.replace(start, end - start, placeholder);
+
+            const std::size_t after = start + placeholder.size();
+
+            // The statement is also likely unterminated while typing (e.g. `r.`), so
+            // make sure it ends with a semicolon before the end of the line.
+            std::size_t lineEnd = after;
+            while (lineEnd < result.size() && result[lineEnd] != '\n') {
+                ++lineEnd;
+            }
+
+            bool terminated = false;
+            for (std::size_t index = after; index < lineEnd; ++index) {
+                if (result[index] == ';') {
+                    terminated = true;
+                    break;
+                }
+            }
+
+            if (!terminated) {
+                result.insert(after, ";");
+            }
+
+            return {std::move(result), after};
+        }
+
+        std::vector<DocumentSymbol> describeMembers(const Compiler::Semantic::STType::StructType &structType) {
+            std::vector<DocumentSymbol> children;
+            const auto &scope = structType.getMemberScope();
+
+            for (const auto &[name, range] : structType.getMemberDeclarations()) {
+                const auto iterator = scope.symbols.find(name);
+
+                if (iterator == scope.symbols.end()) {
+                    continue;
+                }
+
+                DocumentSymbol child;
+                child.name = name;
+                child.kind = name == structType.getName()
+                                 ? DocumentSymbolKind::Constructor
+                                 : (iterator->second->getKind() == SymbolKind::Field ? DocumentSymbolKind::Field : DocumentSymbolKind::Method);
+                child.range = toProtocolRange(range);
+                child.selectionRange = child.range;
+                children.push_back(std::move(child));
+            }
+
+            return children;
+        }
+
+        bool containsOffset(const Compiler::SourceRange &range, const std::size_t offset) {
+            return offset >= range.begin.offset && offset <= range.end.offset;
+        }
+
+        bool isVisible(const Compiler::Semantic::SymbolDefinition &definition, const std::size_t offset) {
+            return definition.global || containsOffset(definition.scopeRange, offset);
+        }
+
+        const Compiler::Semantic::STType::StructType *asStruct(const Compiler::Semantic::STType::Type *type) {
+            while (type != nullptr) {
+                switch (type->getKind()) {
+                    case Compiler::Semantic::STType::TypeKind::Struct:
+                        return static_cast<const Compiler::Semantic::STType::StructType *>(type);
+                    case Compiler::Semantic::STType::TypeKind::Pointer:
+                        type = static_cast<const Compiler::Semantic::STType::PointerType *>(type)->getElementType().get();
+                        break;
+                    case Compiler::Semantic::STType::TypeKind::Reference:
+                        type = static_cast<const Compiler::Semantic::STType::ReferenceType *>(type)->getElementType().get();
+                        break;
+                    default:
+                        return nullptr;
+                }
+            }
+
+            return nullptr;
+        }
+
+        std::optional<std::string> memberReceiverName(const std::string &text, const std::size_t offset) {
+            std::size_t index = std::min(offset, text.size());
+
+            while (index > 0) {
+                const unsigned char byte = static_cast<unsigned char>(text[index - 1]);
+
+                if (std::isalnum(byte) != 0 || byte == '_') {
+                    --index;
+                } else {
+                    break;
+                }
+            }
+
+            while (index > 0 && (text[index - 1] == ' ' || text[index - 1] == '\t')) {
+                --index;
+            }
+
+            if (index == 0 || text[index - 1] != '.') {
+                return std::nullopt;
+            }
+
+            --index;
+
+            while (index > 0 && (text[index - 1] == ' ' || text[index - 1] == '\t')) {
+                --index;
+            }
+
+            const std::size_t end = index;
+
+            while (index > 0) {
+                const unsigned char byte = static_cast<unsigned char>(text[index - 1]);
+
+                if (std::isalnum(byte) != 0 || byte == '_') {
+                    --index;
+                } else {
+                    break;
+                }
+            }
+
+            if (index == end) {
+                return std::nullopt;
+            }
+
+            return text.substr(index, end - index);
+        }
+
+        // Resolve the struct type behind `receiver.` at the cursor, if possible.
+        const Compiler::Semantic::STType::StructType *receiverStruct(const SymbolIndex &index, const std::string &text, const std::size_t offset) {
+            const std::optional<std::string> receiver = memberReceiverName(text, offset);
+
+            if (!receiver.has_value()) {
+                return nullptr;
+            }
+
+            if (*receiver == "self") {
+                for (const Compiler::Semantic::SymbolDefinition &definition : index.globals) {
+                    if (definition.symbol == nullptr || definition.symbol->getKind() != SymbolKind::Type || !containsOffset(definition.range, offset)) {
+                        continue;
+                    }
+
+                    const auto &typeSymbol = static_cast<const Compiler::Semantic::TypeSymbol &>(*definition.symbol);
+                    return asStruct(typeSymbol.getType().get());
+                }
+
+                return nullptr;
+            }
+
+            for (const Compiler::Semantic::SymbolDefinition &definition : index.globals) {
+                if (definition.name != *receiver || definition.symbol == nullptr || !isVisible(definition, offset)) {
+                    continue;
+                }
+
+                std::shared_ptr<Compiler::Semantic::STType::Type> type;
+
+                switch (definition.symbol->getKind()) {
+                    case SymbolKind::Variable:
+                        type = static_cast<const Compiler::Semantic::VariableSymbol &>(*definition.symbol).getType();
+                        break;
+                    case SymbolKind::Field:
+                        type = static_cast<const Compiler::Semantic::FieldSymbol &>(*definition.symbol).getType();
+                        break;
+                    default:
+                        continue;
+                }
+
+                if (const auto *structure = asStruct(type.get())) {
+                    return structure;
+                }
+            }
+
+            return nullptr;
+        }
+
+        void appendStructMembers(const Compiler::Semantic::STType::StructType &structType, std::unordered_set<std::string> &seen, std::vector<CompletionItem> &items) {
+            const auto &scope = structType.getMemberScope();
+
+            for (const auto &[name, range] : structType.getMemberDeclarations()) {
+                (void) range;
+
+                if (!seen.insert(name).second) {
+                    continue;
+                }
+
+                const auto iterator = scope.symbols.find(name);
+
+                if (iterator == scope.symbols.end()) {
+                    continue;
+                }
+
+                CompletionItem item;
+                item.label = name;
+                item.kind = name == structType.getName()
+                                ? CompletionItemKind::Constructor
+                                : (iterator->second->getKind() == SymbolKind::Field ? CompletionItemKind::Field : CompletionItemKind::Method);
+                items.push_back(std::move(item));
+            }
+        }
+
+        // Keywords are read straight from the lexer vocabulary so the list can never
+        // drift from the grammar.
+        const std::vector<std::string> &ryntraKeywords() {
+            static const std::vector<std::string> keywords = [] {
+                std::vector<std::string> result;
+
+                antlr4::ANTLRInputStream input("");
+                Ryntra::antlr::RyntraLexer lexer(&input);
+                const antlr4::dfa::Vocabulary &vocabulary = lexer.getVocabulary();
+
+                for (std::size_t type = 1; type <= vocabulary.getMaxTokenType(); ++type) {
+                    const std::string_view literal = vocabulary.getLiteralName(type);
+
+                    if (literal.size() < 2 || literal.front() != '\'' || literal.back() != '\'') {
+                        continue;
+                    }
+
+                    const std::string keyword(literal.substr(1, literal.size() - 2));
+
+                    if (keyword.empty() || (std::isalpha(static_cast<unsigned char>(keyword.front())) == 0 && keyword.front() != '_')) {
+                        continue;
+                    }
+
+                    bool identifierLike = true;
+
+                    for (const char character : keyword) {
+                        if (std::isalnum(static_cast<unsigned char>(character)) == 0 && character != '_') {
+                            identifierLike = false;
+                            break;
+                        }
+                    }
+
+                    if (identifierLike) {
+                        result.push_back(keyword);
+                    }
+                }
+
+                return result;
+            }();
+
+            return keywords;
+        }
     } // namespace
 
     std::vector<Diagnostic> CompilerLanguageProvider::analyze(const std::string &uri, const std::string &text) {
@@ -468,10 +775,142 @@ namespace Ryntra::LSP {
 
         const std::optional<ResolvedSymbol> resolved = resolveAt(*index, text, *identifier, position);
 
-        if (!resolved.has_value()) {
+        // Builtins (e.g. `int`, `print`) have no real declaration site.
+        if (!resolved.has_value() || resolved->range.isEmpty()) {
             return std::nullopt;
         }
 
         return Location{uri, toProtocolRange(resolved->range)};
+    }
+
+    std::vector<DocumentSymbol> CompilerLanguageProvider::documentSymbols(const std::string &uri, const std::string &text) {
+        (void) uri;
+
+        const std::optional<SymbolIndex> index = analyzeSymbols(text);
+
+        if (!index.has_value()) {
+            return {};
+        }
+
+        std::vector<DocumentSymbol> symbols;
+
+        for (const Compiler::Semantic::SymbolDefinition &definition : index->globals) {
+            if (definition.symbol == nullptr) {
+                continue;
+            }
+
+            const Compiler::Semantic::SymbolKind kind = definition.symbol->getKind();
+
+            if (kind == Compiler::Semantic::SymbolKind::Type) {
+                const auto &typeSymbol = static_cast<const Compiler::Semantic::TypeSymbol &>(*definition.symbol);
+                const auto structType = std::dynamic_pointer_cast<Compiler::Semantic::STType::StructType>(typeSymbol.getType());
+
+                if (structType == nullptr) {
+                    continue;
+                }
+
+                DocumentSymbol symbol;
+                symbol.name = definition.name;
+                symbol.kind = DocumentSymbolKind::Struct;
+                symbol.range = toProtocolRange(definition.range);
+                symbol.selectionRange = symbol.range;
+                symbol.children = describeMembers(*structType);
+                symbols.push_back(std::move(symbol));
+            } else if (kind == Compiler::Semantic::SymbolKind::Function || kind == Compiler::Semantic::SymbolKind::OverloadSet) {
+                DocumentSymbol symbol;
+                symbol.name = definition.name;
+                symbol.kind = DocumentSymbolKind::Function;
+                symbol.range = toProtocolRange(definition.range);
+                symbol.selectionRange = symbol.range;
+                symbols.push_back(std::move(symbol));
+            }
+        }
+
+        return symbols;
+    }
+
+    std::vector<CompletionItem> CompilerLanguageProvider::completion(const std::string &uri, const std::string &text, const Protocol::Position &position) {
+        (void) uri;
+
+        std::vector<CompletionItem> items;
+
+        const SanitizedSource sanitized = sanitizeForCompletion(text, position);
+        const std::optional<SymbolIndex> index = analyzeSymbols(sanitized.text);
+
+        if (!index.has_value()) {
+            return items;
+        }
+
+        std::unordered_set<std::string> seen;
+        const std::string &source = sanitized.text;
+        const std::size_t offset = sanitized.offset;
+
+        if (isMemberAccess(source, offset)) {
+            if (const auto *structure = receiverStruct(*index, source, offset)) {
+                appendStructMembers(*structure, seen, items);
+                return items;
+            }
+
+            for (const MemberDeclaration &member : index->members) {
+                if (!seen.insert(member.name).second) {
+                    continue;
+                }
+
+                CompletionItem item;
+                item.label = member.name;
+                item.kind = member.isConstructor
+                                ? CompletionItemKind::Constructor
+                                : (member.symbol != nullptr && member.symbol->getKind() == SymbolKind::Field ? CompletionItemKind::Field : CompletionItemKind::Method);
+                items.push_back(std::move(item));
+            }
+
+            return items;
+        }
+
+        for (const Compiler::Semantic::SymbolDefinition &definition : index->globals) {
+            if (definition.symbol == nullptr || !isVisible(definition, offset)) {
+                continue;
+            }
+
+            if (!seen.insert(definition.name).second) {
+                continue;
+            }
+
+            CompletionItem item;
+            item.label = definition.name;
+
+            switch (definition.symbol->getKind()) {
+                case SymbolKind::Type: {
+                    const auto &typeSymbol = static_cast<const Compiler::Semantic::TypeSymbol &>(*definition.symbol);
+                    item.kind = asStruct(typeSymbol.getType().get()) != nullptr ? CompletionItemKind::Struct : CompletionItemKind::Class;
+                    break;
+                }
+                case SymbolKind::Function:
+                case SymbolKind::OverloadSet:
+                    item.kind = CompletionItemKind::Function;
+                    break;
+                case SymbolKind::Variable:
+                    item.kind = CompletionItemKind::Variable;
+                    break;
+                case SymbolKind::Field:
+                    item.kind = CompletionItemKind::Field;
+                    break;
+            }
+
+            items.push_back(std::move(item));
+        }
+
+        for (const std::string &keyword : ryntraKeywords()) {
+            if (!seen.insert(keyword).second) {
+                continue;
+            }
+
+            CompletionItem item;
+            item.label = keyword;
+            item.kind = CompletionItemKind::Keyword;
+            items.push_back(std::move(item));
+        }
+
+        return items;
     }
 } // namespace Ryntra::LSP

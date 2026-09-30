@@ -1,5 +1,7 @@
 #include "LSPServer.h"
 
+#include "Analysis/Completion.h"
+#include "Analysis/DocumentSymbol.h"
 #include "Analysis/Hover.h"
 #include "Analysis/Location.h"
 #include "Diagnostics/Diagnostic.h"
@@ -98,6 +100,16 @@ namespace Ryntra::LSP {
             return;
         }
 
+        if (request.method == Protocol::kTextDocumentDocumentSymbol) {
+            handleDocumentSymbol(request);
+            return;
+        }
+
+        if (request.method == Protocol::kTextDocumentCompletion) {
+            handleCompletion(request);
+            return;
+        }
+
         sendError(request.id, JsonRPCErrorCode::MethodNotFound, "Method not found: " + request.method);
     }
 
@@ -133,6 +145,9 @@ namespace Ryntra::LSP {
         result.capabilities.textDocumentSync = Protocol::TextDocumentSyncKind::Full;
         result.capabilities.hoverProvider = true;
         result.capabilities.definitionProvider = true;
+        result.capabilities.documentSymbolProvider = true;
+        result.capabilities.completionProvider = true;
+        result.capabilities.completionTriggerCharacters = {"."};
         result.serverInfo = {std::string(Protocol::kServerName), std::string(Protocol::kServerVersion)};
 
         sendResponse(request.id, Protocol::serializeInitializeResult(result));
@@ -217,6 +232,48 @@ namespace Ryntra::LSP {
         } catch (const std::exception &exception) {
             std::print(std::cerr, "Failed to compute definition: {}\n", exception.what());
             sendResponse(request.id, nullptr);
+        }
+    }
+
+    void LSPServer::handleDocumentSymbol(const JsonRPCRequest &request) {
+        try {
+            const Protocol::DocumentSymbolParams params = Protocol::parseDocumentSymbolParams(request.params);
+            const Document *document = documentManager.get(params.textDocument.uri);
+
+            if (document == nullptr || providers.documentSymbols == nullptr) {
+                sendResponse(request.id, nlohmann::json::array());
+                return;
+            }
+
+            const std::vector<DocumentSymbol> symbols = providers.documentSymbols->documentSymbols(params.textDocument.uri, document->text);
+            sendResponse(request.id, serialize(symbols));
+        } catch (const JsonRPCException &exception) {
+            const JsonRPCError &error = exception.getError();
+            sendError(request.id, error.code, error.message, error.data);
+        } catch (const std::exception &exception) {
+            std::print(std::cerr, "Failed to compute document symbols: {}\n", exception.what());
+            sendResponse(request.id, nlohmann::json::array());
+        }
+    }
+
+    void LSPServer::handleCompletion(const JsonRPCRequest &request) {
+        try {
+            const Protocol::TextDocumentPositionParams params = Protocol::parseTextDocumentPositionParams(request.params);
+            const Document *document = documentManager.get(params.textDocument.uri);
+
+            if (document == nullptr || providers.completion == nullptr) {
+                sendResponse(request.id, nlohmann::json::array());
+                return;
+            }
+
+            const std::vector<CompletionItem> items = providers.completion->completion(params.textDocument.uri, document->text, params.position);
+            sendResponse(request.id, serialize(items));
+        } catch (const JsonRPCException &exception) {
+            const JsonRPCError &error = exception.getError();
+            sendError(request.id, error.code, error.message, error.data);
+        } catch (const std::exception &exception) {
+            std::print(std::cerr, "Failed to compute completion: {}\n", exception.what());
+            sendResponse(request.id, nlohmann::json::array());
         }
     }
 

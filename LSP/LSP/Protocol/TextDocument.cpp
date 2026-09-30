@@ -119,4 +119,10 @@ namespace Ryntra::LSP::Protocol {
         result.position = parsePosition(field(params, "position"));
         return result;
     }
+
+    DocumentSymbolParams parseDocumentSymbolParams(const nlohmann::json &params) {
+        DocumentSymbolParams result;
+        result.textDocument.uri = stringField(field(params, "textDocument"), "uri");
+        return result;
+    }
 } // namespace Ryntra::LSP::Protocol

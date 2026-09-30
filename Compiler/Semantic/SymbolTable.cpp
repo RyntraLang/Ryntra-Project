@@ -97,11 +97,11 @@ namespace Ryntra::Compiler::Semantic {
         auto stringType = std::make_shared<STType::StringType>();
         auto boolType = std::make_shared<STType::BoolType>();
 
-        scopes.back()->symbols["void"] = std::make_shared<TypeSymbol>("void", voidType);
-        scopes.back()->symbols["int"] = std::make_shared<TypeSymbol>("int", int32Type);
-        scopes.back()->symbols["long"] = std::make_shared<TypeSymbol>("long", int64Type);
-        scopes.back()->symbols["bool"] = std::make_shared<TypeSymbol>("bool", boolType);
-        scopes.back()->symbols["string"] = std::make_shared<TypeSymbol>("string", stringType);
+        define(std::make_shared<TypeSymbol>("void", voidType), {});
+        define(std::make_shared<TypeSymbol>("int", int32Type), {});
+        define(std::make_shared<TypeSymbol>("long", int64Type), {});
+        define(std::make_shared<TypeSymbol>("bool", boolType), {});
+        define(std::make_shared<TypeSymbol>("string", stringType), {});
 
         auto overloadSet = std::make_shared<OverloadSet>("__builtin_print");
         {
@@ -129,13 +129,14 @@ namespace Ryntra::Compiler::Semantic {
                 std::make_shared<FunctionSymbol>("__builtin_print", voidType, std::move(params)));
         }
 
-        scopes.back()->symbols["__builtin_print"] = std::move(overloadSet);
+        define(std::move(overloadSet), {});
     }
 
-    void SymbolTable::enterScope(Scope::Kind kind) {
+    void SymbolTable::enterScope(Scope::Kind kind, const SourceRange &range) {
         auto scope = std::make_unique<Scope>();
         scope->parent = scopes.empty() ? nullptr : scopes.back().get();
         scope->kind = kind;
+        scope->range = range;
         scopes.emplace_back(std::move(scope));
     }
 
@@ -161,7 +162,7 @@ namespace Ryntra::Compiler::Semantic {
             return;
         }
         currentScope->symbols[name] = symbol;
-        definitions.push_back({name, range, std::move(symbol)});
+        definitions.push_back({name, range, std::move(symbol), currentScope->kind == Scope::Kind::Global, currentScope->range});
     }
 
     std::shared_ptr<Symbol> SymbolTable::resolve(const std::string &name) {

@@ -14,6 +14,8 @@ namespace Ryntra::LSP::Protocol {
     inline constexpr std::string_view kTextDocumentPublishDiagnostics = "textDocument/publishDiagnostics";
     inline constexpr std::string_view kTextDocumentHover = "textDocument/hover";
     inline constexpr std::string_view kTextDocumentDefinition = "textDocument/definition";
+    inline constexpr std::string_view kTextDocumentDocumentSymbol = "textDocument/documentSymbol";
+    inline constexpr std::string_view kTextDocumentCompletion = "textDocument/completion";
 
     inline constexpr std::string_view kServerName = "Ryntra Language Server";
     inline constexpr std::string_view kServerVersion = "0.1.0";

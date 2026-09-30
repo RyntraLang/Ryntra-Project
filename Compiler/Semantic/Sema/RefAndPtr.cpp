@@ -183,7 +183,7 @@ namespace Ryntra::Compiler::Semantic {
 
         auto varName = node.getName()->getName();
         auto ptrSTType = std::make_shared<STType::PointerType>(elemSTType);
-        symbolTable.enterScope();
+        symbolTable.enterScope(Scope::Kind::Block, node.getRange());
         symbolTable.define(std::make_shared<VariableSymbol>(varName, ptrSTType), node.getRange());
 
         node.getBody()->accept(*this);
