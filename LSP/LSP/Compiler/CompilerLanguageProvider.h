@@ -4,6 +4,7 @@
 #include "Analysis/DefinitionProvider.h"
 #include "Analysis/DocumentSymbolProvider.h"
 #include "Analysis/HoverProvider.h"
+#include "Analysis/SemanticTokensProvider.h"
 #include "Diagnostics/DiagnosticsProvider.h"
 
 namespace Ryntra::LSP {
@@ -16,7 +17,8 @@ namespace Ryntra::LSP {
           public HoverProvider,
           public DefinitionProvider,
           public DocumentSymbolProvider,
-          public CompletionProvider {
+          public CompletionProvider,
+          public SemanticTokensProvider {
     public:
         std::vector<Diagnostic> analyze(const std::string &uri, const std::string &text) override;
 
@@ -27,5 +29,7 @@ namespace Ryntra::LSP {
         std::vector<DocumentSymbol> documentSymbols(const std::string &uri, const std::string &text) override;
 
         std::vector<CompletionItem> completion(const std::string &uri, const std::string &text, const Protocol::Position &position) override;
+
+        std::vector<SemanticToken> semanticTokens(const std::string &uri, const std::string &text) override;
     };
 } // namespace Ryntra::LSP

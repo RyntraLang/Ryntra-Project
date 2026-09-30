@@ -1,5 +1,7 @@
 #include "Protocol/Initialize.h"
 
+#include "Analysis/SemanticTokens.h"
+
 #include <utility>
 
 namespace Ryntra::LSP::Protocol {
@@ -51,6 +53,16 @@ namespace Ryntra::LSP::Protocol {
         if (result.capabilities.completionProvider) {
             capabilities["completionProvider"] = {
                 {"triggerCharacters", result.capabilities.completionTriggerCharacters},
+            };
+        }
+
+        if (result.capabilities.semanticTokensProvider) {
+            capabilities["semanticTokensProvider"] = {
+                {"legend", {
+                    {"tokenTypes", semanticTokenTypeNames()},
+                    {"tokenModifiers", semanticTokenModifierNames()},
+                }},
+                {"full", true},
             };
         }
 

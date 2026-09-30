@@ -4,6 +4,7 @@
 #include "Analysis/DocumentSymbol.h"
 #include "Analysis/Hover.h"
 #include "Analysis/Location.h"
+#include "Analysis/SemanticTokens.h"
 #include "Diagnostics/Diagnostic.h"
 #include "Protocol/Initialize.h"
 #include "Protocol/Protocol.h"
@@ -110,6 +111,11 @@ namespace Ryntra::LSP {
             return;
         }
 
+        if (request.method == Protocol::kTextDocumentSemanticTokensFull) {
+            handleSemanticTokens(request);
+            return;
+        }
+
         sendError(request.id, JsonRPCErrorCode::MethodNotFound, "Method not found: " + request.method);
     }
 
@@ -148,6 +154,7 @@ namespace Ryntra::LSP {
         result.capabilities.documentSymbolProvider = true;
         result.capabilities.completionProvider = true;
         result.capabilities.completionTriggerCharacters = {"."};
+        result.capabilities.semanticTokensProvider = true;
         result.serverInfo = {std::string(Protocol::kServerName), std::string(Protocol::kServerVersion)};
 
         sendResponse(request.id, Protocol::serializeInitializeResult(result));
@@ -274,6 +281,27 @@ namespace Ryntra::LSP {
         } catch (const std::exception &exception) {
             std::print(std::cerr, "Failed to compute completion: {}\n", exception.what());
             sendResponse(request.id, nlohmann::json::array());
+        }
+    }
+
+    void LSPServer::handleSemanticTokens(const JsonRPCRequest &request) {
+        try {
+            const Protocol::SemanticTokensParams params = Protocol::parseSemanticTokensParams(request.params);
+            const Document *document = documentManager.get(params.textDocument.uri);
+
+            if (document == nullptr || providers.semanticTokens == nullptr) {
+                sendResponse(request.id, serialize(SemanticTokens{}));
+                return;
+            }
+
+            const SemanticTokens tokens = encodeSemanticTokens(providers.semanticTokens->semanticTokens(params.textDocument.uri, document->text));
+            sendResponse(request.id, serialize(tokens));
+        } catch (const JsonRPCException &exception) {
+            const JsonRPCError &error = exception.getError();
+            sendError(request.id, error.code, error.message, error.data);
+        } catch (const std::exception &exception) {
+            std::print(std::cerr, "Failed to compute semantic tokens: {}\n", exception.what());
+            sendResponse(request.id, serialize(SemanticTokens{}));
         }
     }
 

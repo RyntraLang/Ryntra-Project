@@ -4,6 +4,7 @@
 #include "Analysis/DefinitionProvider.h"
 #include "Analysis/DocumentSymbolProvider.h"
 #include "Analysis/HoverProvider.h"
+#include "Analysis/SemanticTokensProvider.h"
 #include "Diagnostics/DiagnosticsProvider.h"
 
 namespace Ryntra::LSP {
@@ -15,5 +16,6 @@ namespace Ryntra::LSP {
         DefinitionProvider *definition = nullptr;
         DocumentSymbolProvider *documentSymbols = nullptr;
         CompletionProvider *completion = nullptr;
+        SemanticTokensProvider *semanticTokens = nullptr;
     };
 } // namespace Ryntra::LSP

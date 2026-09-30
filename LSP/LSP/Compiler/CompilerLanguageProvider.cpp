@@ -283,6 +283,8 @@ namespace Ryntra::LSP {
                     return std::nullopt;
                 }
 
+                // Strict: only index syntactically valid input. Callers that need to work
+                // mid-typing (completion) feed sanitized candidates instead.
                 for (const Compiler::ErrorObject &error : errorHandler.getErrorObjects()) {
                     if (error.type == Compiler::kError) {
                         return std::nullopt;
@@ -404,18 +406,21 @@ namespace Ryntra::LSP {
             return index > 0 && text[index - 1] == '.';
         }
 
-        struct SanitizedSource {
+        struct AnalysisInput {
             std::string text;
             std::size_t offset = 0;
         };
 
-        // Completion is requested while the user is mid-typing, so the document can be
-        // momentarily invalid (e.g. `rect.`). Replace the incomplete member name with a
-        // placeholder so the front-end can still parse and index the rest of the file.
-        SanitizedSource sanitizeForCompletion(const std::string &text, const Protocol::Position &position) {
-            const std::size_t offset = std::min(offsetAt(text, position), text.size());
+        // Completion runs while the user is mid-typing, so the document can be invalid
+        // (e.g. `r`, `rect.`, `int x =`). The strict analyzer rejects those, so we offer
+        // several sanitized variants that stay syntactically valid and let the caller
+        // pick the first that parses.
+        std::vector<AnalysisInput> completionCandidates(const std::string &text, const Protocol::Position &position) {
+            std::vector<AnalysisInput> candidates;
 
-            std::size_t start = offset;
+            const std::size_t rawOffset = std::min(offsetAt(text, position), text.size());
+
+            std::size_t start = rawOffset;
             while (start > 0) {
                 const unsigned char byte = static_cast<unsigned char>(text[start - 1]);
 
@@ -426,7 +431,7 @@ namespace Ryntra::LSP {
                 }
             }
 
-            std::size_t end = offset;
+            std::size_t end = rawOffset;
             while (end < text.size()) {
                 const unsigned char byte = static_cast<unsigned char>(text[end]);
 
@@ -437,42 +442,82 @@ namespace Ryntra::LSP {
                 }
             }
 
-            std::size_t before = start;
-            while (before > 0 && (text[before - 1] == ' ' || text[before - 1] == '\t')) {
-                --before;
-            }
-
-            if (before == 0 || text[before - 1] != '.') {
-                return {text, offset};
-            }
-
             static const std::string placeholder = "__completion";
 
-            std::string result = text;
-            result.replace(start, end - start, placeholder);
+            // 1) Replace the word being typed with a placeholder expression, close any
+            //    parentheses opened on the line, and terminate the statement. Handles
+            //    `receiver.` -> `receiver.__completion;` as well as being inside a call
+            //    such as `print(receiver.)` -> `print(receiver.__completion);`.
+            {
+                std::string candidate = text;
+                candidate.replace(start, end - start, placeholder);
 
-            const std::size_t after = start + placeholder.size();
+                const std::size_t after = start + placeholder.size();
 
-            // The statement is also likely unterminated while typing (e.g. `r.`), so
-            // make sure it ends with a semicolon before the end of the line.
-            std::size_t lineEnd = after;
-            while (lineEnd < result.size() && result[lineEnd] != '\n') {
-                ++lineEnd;
-            }
-
-            bool terminated = false;
-            for (std::size_t index = after; index < lineEnd; ++index) {
-                if (result[index] == ';') {
-                    terminated = true;
-                    break;
+                std::size_t lineStart = start;
+                while (lineStart > 0 && candidate[lineStart - 1] != '\n') {
+                    --lineStart;
                 }
+
+                std::size_t lineEnd = after;
+                while (lineEnd < candidate.size() && candidate[lineEnd] != '\n') {
+                    ++lineEnd;
+                }
+
+                int openParens = 0;
+                for (std::size_t index = lineStart; index < lineEnd; ++index) {
+                    if (candidate[index] == '(') {
+                        ++openParens;
+                    } else if (candidate[index] == ')' && openParens > 0) {
+                        --openParens;
+                    }
+                }
+
+                bool terminated = false;
+                for (std::size_t index = after; index < lineEnd; ++index) {
+                    if (candidate[index] == ';') {
+                        terminated = true;
+                        break;
+                    }
+                }
+
+                if (!terminated) {
+                    std::string suffix(static_cast<std::size_t>(openParens), ')');
+                    suffix += ';';
+                    candidate.insert(lineEnd, suffix);
+                }
+
+                candidates.push_back({std::move(candidate), after});
             }
 
-            if (!terminated) {
-                result.insert(after, ";");
+            // 2) Drop the incomplete word entirely.
+            {
+                std::string candidate = text;
+                candidate.erase(start, end - start);
+                candidates.push_back({std::move(candidate), start});
             }
 
-            return {std::move(result), after};
+            // 3) Blank out the whole line (handles incomplete top-level declarations).
+            {
+                std::size_t lineStart = start;
+                while (lineStart > 0 && text[lineStart - 1] != '\n') {
+                    --lineStart;
+                }
+
+                std::size_t lineEnd = end;
+                while (lineEnd < text.size() && text[lineEnd] != '\n') {
+                    ++lineEnd;
+                }
+
+                std::string candidate = text;
+                candidate.replace(lineStart, lineEnd - lineStart, "");
+                candidates.push_back({std::move(candidate), lineStart});
+            }
+
+            // 4) The document as-is.
+            candidates.push_back({text, rawOffset});
+
+            return candidates;
         }
 
         std::vector<DocumentSymbol> describeMembers(const Compiler::Semantic::STType::StructType &structType) {
@@ -572,8 +617,8 @@ namespace Ryntra::LSP {
             return text.substr(index, end - index);
         }
 
-        // Resolve the struct type behind `receiver.` at the cursor, if possible.
-        const Compiler::Semantic::STType::StructType *receiverStruct(const SymbolIndex &index, const std::string &text, const std::size_t offset) {
+        // Resolve the type behind `receiver.` at the cursor, if possible.
+        Compiler::Semantic::TypePtr receiverType(const SymbolIndex &index, const std::string &text, const std::size_t offset) {
             const std::optional<std::string> receiver = memberReceiverName(text, offset);
 
             if (!receiver.has_value()) {
@@ -587,7 +632,7 @@ namespace Ryntra::LSP {
                     }
 
                     const auto &typeSymbol = static_cast<const Compiler::Semantic::TypeSymbol &>(*definition.symbol);
-                    return asStruct(typeSymbol.getType().get());
+                    return typeSymbol.getType();
                 }
 
                 return nullptr;
@@ -598,25 +643,34 @@ namespace Ryntra::LSP {
                     continue;
                 }
 
-                std::shared_ptr<Compiler::Semantic::STType::Type> type;
-
                 switch (definition.symbol->getKind()) {
                     case SymbolKind::Variable:
-                        type = static_cast<const Compiler::Semantic::VariableSymbol &>(*definition.symbol).getType();
-                        break;
+                        return static_cast<const Compiler::Semantic::VariableSymbol &>(*definition.symbol).getType();
                     case SymbolKind::Field:
-                        type = static_cast<const Compiler::Semantic::FieldSymbol &>(*definition.symbol).getType();
-                        break;
+                        return static_cast<const Compiler::Semantic::FieldSymbol &>(*definition.symbol).getType();
                     default:
-                        continue;
-                }
-
-                if (const auto *structure = asStruct(type.get())) {
-                    return structure;
+                        break;
                 }
             }
 
             return nullptr;
+        }
+
+        void appendCompletionItem(std::vector<CompletionItem> &items, std::unordered_set<std::string> &seen, const std::string &label, const CompletionItemKind kind) {
+            if (!seen.insert(label).second) {
+                return;
+            }
+
+            CompletionItem item;
+            item.label = label;
+            item.kind = kind;
+            items.push_back(std::move(item));
+        }
+
+        // Built-in pointer members handled by the front-end: `ptr<T>.load()` / `.store()`.
+        void appendPointerMembers(std::unordered_set<std::string> &seen, std::vector<CompletionItem> &items) {
+            appendCompletionItem(items, seen, "load", CompletionItemKind::Method);
+            appendCompletionItem(items, seen, "store", CompletionItemKind::Method);
         }
 
         void appendStructMembers(const Compiler::Semantic::STType::StructType &structType, std::unordered_set<std::string> &seen, std::vector<CompletionItem> &items) {
@@ -685,6 +739,211 @@ namespace Ryntra::LSP {
             }();
 
             return keywords;
+        }
+
+        const std::unordered_set<std::size_t> &keywordTokenTypes() {
+            static const std::unordered_set<std::size_t> types = [] {
+                std::unordered_set<std::size_t> result;
+
+                antlr4::ANTLRInputStream input("");
+                Ryntra::antlr::RyntraLexer lexer(&input);
+                const antlr4::dfa::Vocabulary &vocabulary = lexer.getVocabulary();
+
+                for (std::size_t type = 1; type <= vocabulary.getMaxTokenType(); ++type) {
+                    const std::string_view literal = vocabulary.getLiteralName(type);
+
+                    if (literal.size() < 2 || literal.front() != '\'' || literal.back() != '\'') {
+                        continue;
+                    }
+
+                    const std::string word(literal.substr(1, literal.size() - 2));
+
+                    if (word.empty() || (std::isalpha(static_cast<unsigned char>(word.front())) == 0 && word.front() != '_')) {
+                        continue;
+                    }
+
+                    bool identifierLike = true;
+
+                    for (const char character : word) {
+                        if (std::isalnum(static_cast<unsigned char>(character)) == 0 && character != '_') {
+                            identifierLike = false;
+                            break;
+                        }
+                    }
+
+                    if (identifierLike) {
+                        result.insert(type);
+                    }
+                }
+
+                return result;
+            }();
+
+            return types;
+        }
+
+        std::uint32_t utf16Length(const std::string &text) {
+            std::uint32_t length = 0;
+            std::size_t index = 0;
+
+            while (index < text.size()) {
+                const unsigned char byte = static_cast<unsigned char>(text[index]);
+                std::size_t size = 1;
+
+                if ((byte & 0xE0u) == 0xC0u) {
+                    size = 2;
+                } else if ((byte & 0xF0u) == 0xE0u) {
+                    size = 3;
+                } else if ((byte & 0xF8u) == 0xF0u) {
+                    size = 4;
+                }
+
+                length += size == 4 ? 2 : 1;
+                index += size;
+            }
+
+            return length;
+        }
+
+        struct TokenNames {
+            std::unordered_set<std::string> types;
+            std::unordered_set<std::string> structs;
+            std::unordered_set<std::string> functions;
+            std::unordered_set<std::string> fields;
+            std::unordered_set<std::string> parameters;
+            std::unordered_set<std::string> variables;
+        };
+
+        TokenNames collectTokenNames(const SymbolIndex &index) {
+            TokenNames names;
+
+            for (const Compiler::Semantic::SymbolDefinition &definition : index.globals) {
+                if (definition.symbol == nullptr) {
+                    continue;
+                }
+
+                switch (definition.symbol->getKind()) {
+                    case SymbolKind::Type: {
+                        const auto &typeSymbol = static_cast<const Compiler::Semantic::TypeSymbol &>(*definition.symbol);
+
+                        if (asStruct(typeSymbol.getType().get()) != nullptr) {
+                            names.structs.insert(definition.name);
+                        } else {
+                            names.types.insert(definition.name);
+                        }
+                        break;
+                    }
+                    case SymbolKind::Function:
+                    case SymbolKind::OverloadSet:
+                        names.functions.insert(definition.name);
+                        break;
+                    case SymbolKind::Variable: {
+                        const auto &variable = static_cast<const Compiler::Semantic::VariableSymbol &>(*definition.symbol);
+
+                        if (variable.isParameter()) {
+                            names.parameters.insert(definition.name);
+                        } else {
+                            names.variables.insert(definition.name);
+                        }
+                        break;
+                    }
+                    case SymbolKind::Field:
+                        names.fields.insert(definition.name);
+                        break;
+                }
+            }
+
+            for (const MemberDeclaration &member : index.members) {
+                if (member.symbol != nullptr && member.symbol->getKind() == SymbolKind::Field) {
+                    names.fields.insert(member.name);
+                } else {
+                    names.functions.insert(member.name);
+                }
+            }
+
+            return names;
+        }
+
+        SemanticTokenType classifyToken(const std::string &name, const TokenNames &names) {
+            if (names.structs.count(name) != 0) {
+                return SemanticTokenType::Struct;
+            }
+            if (names.types.count(name) != 0) {
+                return SemanticTokenType::Type;
+            }
+            if (names.functions.count(name) != 0) {
+                return SemanticTokenType::Function;
+            }
+            if (names.fields.count(name) != 0) {
+                return SemanticTokenType::Property;
+            }
+            if (names.parameters.count(name) != 0) {
+                return SemanticTokenType::Parameter;
+            }
+
+            return SemanticTokenType::Variable;
+        }
+
+        void addCommentToken(const std::string &text, const std::size_t start, const std::size_t end, std::vector<SemanticToken> &tokens) {
+            if (end <= start) {
+                return;
+            }
+
+            SemanticToken token;
+            token.start = positionAt(text, start);
+            token.length = utf16Length(text.substr(start, end - start));
+            token.type = SemanticTokenType::Comment;
+            tokens.push_back(std::move(token));
+        }
+
+        // The lexer skips comments, so scan for them separately (ignoring `//` inside strings).
+        void appendCommentTokens(const std::string &text, std::vector<SemanticToken> &tokens) {
+            std::size_t index = 0;
+            bool inString = false;
+
+            while (index < text.size()) {
+                const char character = text[index];
+
+                if (inString) {
+                    if (character == '\\' && index + 1 < text.size()) {
+                        index += 2;
+                        continue;
+                    }
+                    if (character == '"') {
+                        inString = false;
+                    }
+                    ++index;
+                    continue;
+                }
+
+                if (character == '"') {
+                    inString = true;
+                    ++index;
+                    continue;
+                }
+
+                if (character == '/' && index + 1 < text.size() && text[index + 1] == '/') {
+                    const std::size_t start = index;
+                    while (index < text.size() && text[index] != '\n') {
+                        ++index;
+                    }
+                    addCommentToken(text, start, index, tokens);
+                    continue;
+                }
+
+                if (character == '/' && index + 1 < text.size() && text[index + 1] == '*') {
+                    const std::size_t start = index;
+                    index += 2;
+                    while (index + 1 < text.size() && !(text[index] == '*' && text[index + 1] == '/')) {
+                        ++index;
+                    }
+                    index = index + 1 < text.size() ? index + 2 : text.size();
+                    addCommentToken(text, start, index, tokens);
+                    continue;
+                }
+
+                ++index;
+            }
         }
     } // namespace
 
@@ -775,7 +1034,7 @@ namespace Ryntra::LSP {
 
         const std::optional<ResolvedSymbol> resolved = resolveAt(*index, text, *identifier, position);
 
-        // Builtins (e.g. `int`, `print`) have no real declaration site.
+        // Builtins (e.g. `int`, `__builtin_print`) have no real declaration site.
         if (!resolved.has_value() || resolved->range.isEmpty()) {
             return std::nullopt;
         }
@@ -832,85 +1091,171 @@ namespace Ryntra::LSP {
     std::vector<CompletionItem> CompilerLanguageProvider::completion(const std::string &uri, const std::string &text, const Protocol::Position &position) {
         (void) uri;
 
-        std::vector<CompletionItem> items;
+        for (const AnalysisInput &candidate : completionCandidates(text, position)) {
+            const std::optional<SymbolIndex> index = analyzeSymbols(candidate.text);
 
-        const SanitizedSource sanitized = sanitizeForCompletion(text, position);
-        const std::optional<SymbolIndex> index = analyzeSymbols(sanitized.text);
+            if (!index.has_value()) {
+                continue;
+            }
 
-        if (!index.has_value()) {
-            return items;
-        }
+            std::vector<CompletionItem> items;
+            std::unordered_set<std::string> seen;
+            const std::string &source = candidate.text;
+            const std::size_t offset = candidate.offset;
 
-        std::unordered_set<std::string> seen;
-        const std::string &source = sanitized.text;
-        const std::size_t offset = sanitized.offset;
+            if (isMemberAccess(source, offset)) {
+                using Compiler::Semantic::STType::TypeKind;
 
-        if (isMemberAccess(source, offset)) {
-            if (const auto *structure = receiverStruct(*index, source, offset)) {
-                appendStructMembers(*structure, seen, items);
+                const Compiler::Semantic::TypePtr type = receiverType(*index, source, offset);
+                bool resolved = false;
+
+                if (type != nullptr) {
+                    if (type->getKind() == TypeKind::Struct) {
+                        appendStructMembers(static_cast<const Compiler::Semantic::STType::StructType &>(*type), seen, items);
+                        resolved = true;
+                    } else if (type->getKind() == TypeKind::Pointer) {
+                        const auto &pointer = static_cast<const Compiler::Semantic::STType::PointerType &>(*type);
+
+                        // `ptr<Struct>` also exposes the struct's members (auto-deref).
+                        if (const auto *elementStruct = asStruct(pointer.getElementType().get())) {
+                            appendStructMembers(*elementStruct, seen, items);
+                        }
+
+                        appendPointerMembers(seen, items);
+                        resolved = true;
+                    } else if (type->getKind() == TypeKind::Reference) {
+                        const auto &reference = static_cast<const Compiler::Semantic::STType::ReferenceType &>(*type);
+
+                        if (const auto *elementStruct = asStruct(reference.getElementType().get())) {
+                            appendStructMembers(*elementStruct, seen, items);
+                            resolved = true;
+                        }
+                    }
+                }
+
+                if (!resolved) {
+                    for (const MemberDeclaration &member : index->members) {
+                        appendCompletionItem(items, seen, member.name,
+                                             member.isConstructor
+                                                 ? CompletionItemKind::Constructor
+                                                 : (member.symbol != nullptr && member.symbol->getKind() == SymbolKind::Field ? CompletionItemKind::Field : CompletionItemKind::Method));
+                    }
+                }
+
                 return items;
             }
 
-            for (const MemberDeclaration &member : index->members) {
-                if (!seen.insert(member.name).second) {
+            for (const Compiler::Semantic::SymbolDefinition &definition : index->globals) {
+                if (definition.symbol == nullptr || !isVisible(definition, offset)) {
+                    continue;
+                }
+
+                if (!seen.insert(definition.name).second) {
                     continue;
                 }
 
                 CompletionItem item;
-                item.label = member.name;
-                item.kind = member.isConstructor
-                                ? CompletionItemKind::Constructor
-                                : (member.symbol != nullptr && member.symbol->getKind() == SymbolKind::Field ? CompletionItemKind::Field : CompletionItemKind::Method);
+                item.label = definition.name;
+
+                switch (definition.symbol->getKind()) {
+                    case SymbolKind::Type: {
+                        const auto &typeSymbol = static_cast<const Compiler::Semantic::TypeSymbol &>(*definition.symbol);
+                        item.kind = asStruct(typeSymbol.getType().get()) != nullptr ? CompletionItemKind::Struct : CompletionItemKind::Class;
+                        break;
+                    }
+                    case SymbolKind::Function:
+                    case SymbolKind::OverloadSet:
+                        item.kind = CompletionItemKind::Function;
+                        break;
+                    case SymbolKind::Variable:
+                        item.kind = CompletionItemKind::Variable;
+                        break;
+                    case SymbolKind::Field:
+                        item.kind = CompletionItemKind::Field;
+                        break;
+                }
+
+                items.push_back(std::move(item));
+            }
+
+            for (const std::string &keyword : ryntraKeywords()) {
+                if (!seen.insert(keyword).second) {
+                    continue;
+                }
+
+                CompletionItem item;
+                item.label = keyword;
+                item.kind = CompletionItemKind::Keyword;
                 items.push_back(std::move(item));
             }
 
             return items;
         }
 
-        for (const Compiler::Semantic::SymbolDefinition &definition : index->globals) {
-            if (definition.symbol == nullptr || !isVisible(definition, offset)) {
-                continue;
-            }
+        return {};
+    }
 
-            if (!seen.insert(definition.name).second) {
-                continue;
-            }
+    std::vector<SemanticToken> CompilerLanguageProvider::semanticTokens(const std::string &uri, const std::string &text) {
+        (void) uri;
 
-            CompletionItem item;
-            item.label = definition.name;
+        std::vector<SemanticToken> tokens;
 
-            switch (definition.symbol->getKind()) {
-                case SymbolKind::Type: {
-                    const auto &typeSymbol = static_cast<const Compiler::Semantic::TypeSymbol &>(*definition.symbol);
-                    item.kind = asStruct(typeSymbol.getType().get()) != nullptr ? CompletionItemKind::Struct : CompletionItemKind::Class;
-                    break;
+        TokenNames names;
+
+        if (const std::optional<SymbolIndex> index = analyzeSymbols(text)) {
+            names = collectTokenNames(*index);
+        }
+
+        const std::unordered_set<std::size_t> &keywords = keywordTokenTypes();
+
+        try {
+            antlr4::ANTLRInputStream input(text);
+            Ryntra::antlr::RyntraLexer lexer(&input);
+            antlr4::CommonTokenStream stream(&lexer);
+            stream.fill();
+
+            for (antlr4::Token *token : stream.getTokens()) {
+                if (token == nullptr || token->getType() == antlr4::Token::EOF) {
+                    continue;
                 }
-                case SymbolKind::Function:
-                case SymbolKind::OverloadSet:
-                    item.kind = CompletionItemKind::Function;
-                    break;
-                case SymbolKind::Variable:
-                    item.kind = CompletionItemKind::Variable;
-                    break;
-                case SymbolKind::Field:
-                    item.kind = CompletionItemKind::Field;
-                    break;
-            }
 
-            items.push_back(std::move(item));
+                const std::string tokenText = token->getText();
+
+                if (tokenText.empty()) {
+                    continue;
+                }
+
+                SemanticTokenType type = SemanticTokenType::Variable;
+                bool include = true;
+
+                if (token->getType() == Ryntra::antlr::RyntraLexer::IDENTIFIER) {
+                    type = classifyToken(tokenText, names);
+                } else if (keywords.count(token->getType()) != 0) {
+                    type = SemanticTokenType::Keyword;
+                } else if (token->getType() == Ryntra::antlr::RyntraLexer::STRING_LITERAL) {
+                    type = SemanticTokenType::String;
+                } else if (token->getType() == Ryntra::antlr::RyntraLexer::INTEGER_LITERAL) {
+                    type = SemanticTokenType::Number;
+                } else {
+                    include = false;
+                }
+
+                if (!include) {
+                    continue;
+                }
+
+                SemanticToken semanticToken;
+                semanticToken.start.line = token->getLine() == 0 ? 0 : static_cast<std::uint32_t>(token->getLine() - 1);
+                semanticToken.start.character = static_cast<std::uint32_t>(token->getCharPositionInLine());
+                semanticToken.length = utf16Length(tokenText);
+                semanticToken.type = type;
+                tokens.push_back(std::move(semanticToken));
+            }
+        } catch (const std::exception &) {
+            // Lexing is best-effort; comments are still collected below.
         }
 
-        for (const std::string &keyword : ryntraKeywords()) {
-            if (!seen.insert(keyword).second) {
-                continue;
-            }
-
-            CompletionItem item;
-            item.label = keyword;
-            item.kind = CompletionItemKind::Keyword;
-            items.push_back(std::move(item));
-        }
-
-        return items;
+        appendCommentTokens(text, tokens);
+        return tokens;
     }
 } // namespace Ryntra::LSP

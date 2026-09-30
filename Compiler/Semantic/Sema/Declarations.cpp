@@ -336,33 +336,6 @@ namespace Ryntra::Compiler::Semantic {
             symbolTable.define(overloadSet, SourceRange(SourceLocation{0, 0, 0}));
         }
 
-        if (!symbolTable.resolve("print")) {
-            auto overloadSet = std::make_shared<OverloadSet>("print");
-
-            {
-                std::vector<TypePtr> params{std::make_shared<STType::StringType>()};
-                overloadSet->addFunction(std::make_shared<FunctionSymbol>("print",
-                                                                           std::make_shared<STType::VoidType>(), std::move(params)));
-            }
-            {
-                std::vector<TypePtr> params{std::make_shared<STType::Int32Type>()};
-                overloadSet->addFunction(std::make_shared<FunctionSymbol>("print",
-                                                                           std::make_shared<STType::VoidType>(), std::move(params)));
-            }
-            {
-                std::vector<TypePtr> params{std::make_shared<STType::Int64Type>()};
-                overloadSet->addFunction(std::make_shared<FunctionSymbol>("print",
-                                                                           std::make_shared<STType::VoidType>(), std::move(params)));
-            }
-            {
-                std::vector<TypePtr> params{std::make_shared<STType::BoolType>()};
-                overloadSet->addFunction(std::make_shared<FunctionSymbol>("print",
-                                                                           std::make_shared<STType::VoidType>(), std::move(params)));
-            }
-
-            symbolTable.define(overloadSet, SourceRange(SourceLocation{0, 0, 0}));
-        }
-
         // Program-entry checks only matter when producing an executable, so they are
         // disabled for editor analysis (the language server).
         if (compilationMode == CompilationMode::CLI) {

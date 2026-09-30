@@ -22,6 +22,67 @@ INCOMPLETE_MEMBER_SOURCE = (
     "    r.\n"
     "}\n"
 )
+PARTIAL_IDENTIFIER_SOURCE = (
+    "public struct Rectangle {\n"
+    "    public int width;\n"
+    "}\n"
+    "public void main() {\n"
+    "    Rectangle rect = Rectangle(1);\n"
+    "    r\n"
+    "}\n"
+)
+POINTER_SOURCE = (
+    "public void main() {\n"
+    "    ptr<int> p;\n"
+    "    p.\n"
+    "}\n"
+)
+POINTER_STRUCT_SOURCE = (
+    "public struct Rectangle {\n"
+    "    public int width;\n"
+    "}\n"
+    "public void main() {\n"
+    "    ptr<Rectangle> p;\n"
+    "    p.\n"
+    "}\n"
+)
+CALL_ARGUMENT_MEMBER_SOURCE = (
+    "public struct Rectangle {\n"
+    "    public int width;\n"
+    "    public int height;\n"
+    "}\n"
+    "public void main() {\n"
+    "    Rectangle r = Rectangle(1);\n"
+    "    __builtin_print(r.);\n"
+    "}\n"
+)
+CALL_ARGUMENT_MEMBER_SOURCE_NO_CLOSE = (
+    "public struct Rectangle {\n"
+    "    public int width;\n"
+    "    public int height;\n"
+    "}\n"
+    "public void main() {\n"
+    "    Rectangle r = Rectangle(1);\n"
+    "    __builtin_print(r.\n"
+    "}\n"
+)
+SEMANTIC_SOURCE = (
+    "// header comment\n"
+    "public struct Rectangle {\n"
+    "    public int width;\n"
+    "}\n"
+    "public void main() {\n"
+    "    Rectangle rect = Rectangle(1);\n"
+    '    __builtin_print("hi");\n'
+    "    int count = 42;\n"
+    '    string title = "t";\n'
+    "    rect.width = count;\n"
+    "}\n"
+)
+SEMANTIC_TOKEN_TYPES = [
+    "keyword", "type", "function", "variable", "property",
+    "parameter", "struct", "comment", "string", "number", "operator",
+]
 SYMBOL_SOURCE = (
     "public void greet() {\n"
     '    __builtin_print("hi");\n'
@@ -505,8 +566,9 @@ def test_completion():
 
     top_response = server.request(request_message(42, "textDocument/completion", position_params(uri, 8, 0)))
     top_labels = {item["label"] for item in top_response["result"]}
-    assert {"Rectangle", "main", "public", "struct", "int", "string", "print", "Fn"} <= top_labels, top_labels
+    assert {"Rectangle", "main", "public", "struct", "int", "string", "__builtin_print", "__builtin_scan", "Fn"} <= top_labels, top_labels
     assert "rect" not in top_labels, top_labels
+    assert "print" not in top_labels, top_labels
     for bogus in ("char", "double", "float", "private", "protected", "fn"):
         assert bogus not in top_labels, (bogus, top_labels)
 
@@ -552,6 +614,135 @@ def test_completion_on_incomplete_member_access():
     server.wait()
 
 
+def test_completion_on_partial_identifier():
+    server = ServerSession()
+
+    server.request(initialize_request())
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    uri = "file:///partial.rynt"
+    server.send(did_open(uri, PARTIAL_IDENTIFIER_SOURCE))
+
+    response = server.request(request_message(46, "textDocument/completion", position_params(uri, 5, 5)))
+    labels = {item["label"] for item in response["result"]}
+    assert {"ref", "return", "rect", "Rectangle"} <= labels, labels
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
+def test_completion_pointer_members():
+    server = ServerSession()
+
+    server.request(initialize_request())
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    uri = "file:///pointer.rynt"
+    server.send(did_open(uri, POINTER_SOURCE))
+
+    response = server.request(request_message(47, "textDocument/completion", position_params(uri, 2, 6)))
+    labels = {item["label"] for item in response["result"]}
+    assert {"load", "store"} <= labels, labels
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
+def test_completion_pointer_to_struct_members():
+    server = ServerSession()
+
+    server.request(initialize_request())
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    uri = "file:///pointer-struct.rynt"
+    server.send(did_open(uri, POINTER_STRUCT_SOURCE))
+
+    response = server.request(request_message(48, "textDocument/completion", position_params(uri, 5, 6)))
+    labels = {item["label"] for item in response["result"]}
+    assert {"width", "load", "store"} <= labels, labels
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
+def decode_semantic_tokens(response):
+    data = response["result"]["data"]
+    decoded = []
+    line = 0
+    character = 0
+    index = 0
+
+    while index < len(data):
+        delta_line, delta_character, length, token_type, _modifiers = data[index:index + 5]
+        index += 5
+
+        if delta_line == 0:
+            character += delta_character
+        else:
+            line += delta_line
+            character = delta_character
+
+        decoded.append({
+            "line": line,
+            "character": character,
+            "length": length,
+            "type": SEMANTIC_TOKEN_TYPES[token_type],
+        })
+
+    return decoded
+
+
+def test_semantic_tokens():
+    server = ServerSession()
+
+    initialization = server.request(initialize_request())
+    capabilities = initialization["result"]["capabilities"]
+    provider = capabilities.get("semanticTokensProvider")
+    assert provider is not None and provider.get("full") is True, capabilities
+    assert "keyword" in provider["legend"]["tokenTypes"], provider
+    assert provider["legend"]["tokenTypes"] == SEMANTIC_TOKEN_TYPES, provider
+
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    uri = "file:///semantic.rynt"
+    server.send(did_open(uri, SEMANTIC_SOURCE))
+
+    response = server.request(request_message(50, "textDocument/semanticTokens/full", {"textDocument": {"uri": uri}}))
+    decoded = decode_semantic_tokens(response)
+
+    first = decoded[0]
+    assert first["type"] == "comment" and first["line"] == 0 and first["character"] == 0, first
+    assert first["length"] == len("// header comment"), first
+
+    types = {token["type"] for token in decoded}
+    assert {"comment", "keyword", "struct", "type", "property", "function", "variable", "string", "number"} <= types, types
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
+def test_completion_inside_call_argument():
+    server = ServerSession()
+
+    server.request(initialize_request())
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    closed_uri = "file:///call-closed.rynt"
+    server.send(did_open(closed_uri, CALL_ARGUMENT_MEMBER_SOURCE))
+    closed = server.request(request_message(49, "textDocument/completion", position_params(closed_uri, 6, 22)))
+    closed_labels = {item["label"] for item in closed["result"]}
+    assert {"width", "height"} <= closed_labels, closed_labels
+
+    open_uri = "file:///call-open.rynt"
+    server.send(did_open(open_uri, CALL_ARGUMENT_MEMBER_SOURCE_NO_CLOSE))
+    opened = server.request(request_message(50, "textDocument/completion", position_params(open_uri, 6, 22)))
+    opened_labels = {item["label"] for item in opened["result"]}
+    assert {"width", "height"} <= opened_labels, opened_labels
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
 TESTS = [
     ("initialize/shutdown/exit", test_initialize_shutdown_exit),
     ("request before initialize", test_request_before_initialize),
@@ -572,6 +763,11 @@ TESTS = [
     ("completion", test_completion),
     ("completion respects scope", test_completion_respects_scope),
     ("completion on incomplete member access", test_completion_on_incomplete_member_access),
+    ("completion on partial identifier", test_completion_on_partial_identifier),
+    ("completion pointer members", test_completion_pointer_members),
+    ("completion pointer to struct members", test_completion_pointer_to_struct_members),
+    ("completion inside call argument", test_completion_inside_call_argument),
+    ("semantic tokens", test_semantic_tokens),
 ]
 
 def main():

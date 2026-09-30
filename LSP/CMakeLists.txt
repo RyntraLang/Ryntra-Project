@@ -21,6 +21,9 @@ add_executable(RyntraLSP main.cpp
         LSP/Analysis/LanguageProviders.h
         LSP/Analysis/Location.h
         LSP/Analysis/Location.cpp
+        LSP/Analysis/SemanticTokens.h
+        LSP/Analysis/SemanticTokens.cpp
+        LSP/Analysis/SemanticTokensProvider.h
         LSP/Compiler/CompilerLanguageProvider.h
         LSP/Compiler/CompilerLanguageProvider.cpp
         LSP/JsonRPC/JsonRPC.cpp

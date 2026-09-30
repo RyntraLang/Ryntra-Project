@@ -32,6 +32,7 @@ namespace Ryntra::LSP::Protocol {
         bool documentSymbolProvider = false;
         bool completionProvider = false;
         std::vector<std::string> completionTriggerCharacters;
+        bool semanticTokensProvider = false;
     };
 
     struct ServerInfo {

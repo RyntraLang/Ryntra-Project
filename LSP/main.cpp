@@ -26,6 +26,7 @@ int main() {
     providers.definition = &languageProvider;
     providers.documentSymbols = &languageProvider;
     providers.completion = &languageProvider;
+    providers.semanticTokens = &languageProvider;
 
     Ryntra::LSP::LSPServer server(transport, providers);
 

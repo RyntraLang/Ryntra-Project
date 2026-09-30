@@ -1,6 +1,7 @@
 Something will do afterward:
 - Add `--strict` (`-s`) command argument, will treat RCW002 (etc.) as an error.
 - Add `do...while()` block
+- Add Workspace Symbols, Find References and Rename when the multifile compilation is ready.
 
 ****
 
@@ -82,5 +83,4 @@ Semantic Note:
 - ✅ V0.1.2.4 Definition, Hover
 - ✅ V0.1.2.5 Document Symbols
 - ✅ V0.1.2.6 Completion
-- ❌ V0.1.2.7 Find References, Rename
-- ❌ V0.1.2.8 Semantic Tokens
+- ✅ V0.1.2.7 Semantic Tokens

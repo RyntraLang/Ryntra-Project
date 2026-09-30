@@ -22,6 +22,10 @@ namespace Ryntra::LSP::Protocol {
         TextDocumentIdentifier textDocument;
     };
 
+    struct SemanticTokensParams {
+        TextDocumentIdentifier textDocument;
+    };
+
     struct VersionedTextDocumentIdentifier {
         std::string uri;
         std::int32_t version = 0;
@@ -63,4 +67,6 @@ namespace Ryntra::LSP::Protocol {
     TextDocumentPositionParams parseTextDocumentPositionParams(const nlohmann::json &params);
 
     DocumentSymbolParams parseDocumentSymbolParams(const nlohmann::json &params);
+
+    SemanticTokensParams parseSemanticTokensParams(const nlohmann::json &params);
 } // namespace Ryntra::LSP::Protocol

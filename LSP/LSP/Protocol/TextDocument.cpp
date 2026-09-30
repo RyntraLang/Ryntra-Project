@@ -125,4 +125,10 @@ namespace Ryntra::LSP::Protocol {
         result.textDocument.uri = stringField(field(params, "textDocument"), "uri");
         return result;
     }
+
+    SemanticTokensParams parseSemanticTokensParams(const nlohmann::json &params) {
+        SemanticTokensParams result;
+        result.textDocument.uri = stringField(field(params, "textDocument"), "uri");
+        return result;
+    }
 } // namespace Ryntra::LSP::Protocol
