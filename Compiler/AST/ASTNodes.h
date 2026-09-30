@@ -1,3 +1,8 @@
+// ========== ASTNodes.h ===================================== *- C++ -* ========== //
+// Copyright (c) 2026 Remimwen Studio. All rights reserved.
+// Part of the Ryntra Project. Licensed under Apache-2.0 License.
+// ================================================================================ //
+
 #pragma once
 
 #include "ASTVisitor.h"
@@ -9,24 +14,47 @@
 #include <vector>
 
 namespace Ryntra::Compiler {
+    /**
+     * @brief The base class of all the AST Node. Inheriting
+     * <code>std::enable_shared_from_this</code> means you can call
+     * <code>shared_from_this()</code> to get the <code>shared_ptr</code> of the object itself.
+     */
     class IASTNode : public std::enable_shared_from_this<IASTNode> {
     public:
         virtual ~IASTNode() = default;
         virtual void accept(IVisitor &visitor) = 0;
         virtual std::string toString() const = 0;
 
+        /**
+         * @brief Getter. Get the source range of current AST Node.
+         * @return The current node's source range.
+         */
         SourceRange getRange() const {
             return range;
         }
 
+        /**
+         * @brief Setter. Set the source range of current AST Node.
+         * @param newRange The new source range of the current AST Node.
+         */
         void setRange(const SourceRange &newRange) {
             range = newRange;
         }
 
+        /**
+         * @brief Getter. Get the source location of current AST Node.
+         * @deprecated This function is deprecated, please use <code>getRange</code>.
+         * @return The location of the node. The default behavior is returning the start of the range.
+         */
         RYNTRA_DEPRECATED_LOCATION SourceLocation getLocation() const {
             return range.begin;
         }
 
+        /**
+         * @brief Setter. Set the source location of current AST Node.
+         * @deprecated This function is deprecated, please use <code>setRange</code>.
+         * @param newLocation The new location of the AST Node.
+         */
         RYNTRA_DEPRECATED_LOCATION void setLocation(const SourceLocation &newLocation) {
             range = SourceRange(newLocation);
         }
@@ -35,17 +63,40 @@ namespace Ryntra::Compiler {
         SourceRange range;
     };
 
+    /**
+     * @brief This class left empty implementation. Its primary function is to
+     * serve as the parent node of the tree. You can easily treat the @e Expression can be
+     * evaluated to a value. Such as <code>a + b</code>.
+     */
     class ExpressionNode : public IASTNode {};
+
+    /**
+     * @brief This class left empty implementation. Its primary function is to
+     * serve as the parent node of the tree. The statement is <i>doing an action</i>.
+     * Such as <code>if</code> and <code>for</code>.
+     */
     class StatementNode : public IASTNode {};
 
+    /**
+     * @brief The Modifier Node. For now, there's only @c public exists.
+     */
     class ModifierNode : public IASTNode {
     public:
+        /**
+         * @brief The Kind of the Modifier. For now, there's only @c public exists.
+         */
         enum class Kind {
             Public
         };
 
         explicit ModifierNode(Kind kind) : kind(kind) {}
+
+        /**
+         * @brief Getter. Get the modifier kind of this Modifier Node.
+         * @return The kind of this Modifier Node.
+         */
         Kind getKind() const { return kind; }
+
         void accept(IVisitor &visitor) override;
         std::string toString() const override;
 
@@ -418,9 +469,9 @@ namespace Ryntra::Compiler {
     class ArrayDeclarationNode : public StatementNode {
     public:
         ArrayDeclarationNode(std::shared_ptr<ArrayTypeNode> arrayType,
-                              std::shared_ptr<IdentifierNode> name,
-                              std::shared_ptr<TypeSpecifierNode> elementType,
-                              std::shared_ptr<ExpressionNode> size)
+                             std::shared_ptr<IdentifierNode> name,
+                             std::shared_ptr<TypeSpecifierNode> elementType,
+                             std::shared_ptr<ExpressionNode> size)
             : arrayType(std::move(arrayType)), name(std::move(name)), elementType(std::move(elementType)), size(std::move(size)) {}
         std::shared_ptr<ArrayTypeNode> getArrayType() const { return arrayType; }
         std::shared_ptr<IdentifierNode> getName() const { return name; }
@@ -477,9 +528,9 @@ namespace Ryntra::Compiler {
     };
 
     enum class UnaryOpType : uint8_t {
-        BitNot, // ~
+        BitNot,     // ~
         LogicalNot, // !
-        Negate // -
+        Negate      // -
     };
 
     class UnaryOpNode : public ExpressionNode {
@@ -511,12 +562,12 @@ namespace Ryntra::Compiler {
     };
 
     enum class ComparisonOpType : uint8_t {
-        Eq,  // ==
-        Ne,  // !=
-        Lt,  // <
-        Gt,  // >
-        Le,  // <=
-        Ge   // >=
+        Eq, // ==
+        Ne, // !=
+        Lt, // <
+        Gt, // >
+        Le, // <=
+        Ge  // >=
     };
 
     class ComparisonNode : public ExpressionNode {
@@ -644,8 +695,8 @@ namespace Ryntra::Compiler {
     class ArrayIndexAssignmentNode : public ExpressionNode {
     public:
         ArrayIndexAssignmentNode(std::shared_ptr<ExpressionNode> arrayExpr,
-                                  std::shared_ptr<ExpressionNode> index,
-                                  std::shared_ptr<ExpressionNode> value)
+                                 std::shared_ptr<ExpressionNode> index,
+                                 std::shared_ptr<ExpressionNode> value)
             : arrayExpr(std::move(arrayExpr)), index(std::move(index)), value(std::move(value)) {}
         std::shared_ptr<ExpressionNode> getArrayExpr() const { return arrayExpr; }
         std::shared_ptr<ExpressionNode> getIndex() const { return index; }
