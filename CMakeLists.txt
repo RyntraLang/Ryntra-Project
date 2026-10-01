@@ -38,5 +38,4 @@ message(STATUS "Enabled projects: ${ENABLED_PROJECT_LIST}")
 #endforeach ()
 
 add_subdirectory(Compiler)
-add_subdirectory(CodeEditor)
 add_subdirectory(LSP)
