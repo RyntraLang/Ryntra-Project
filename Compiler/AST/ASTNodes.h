@@ -72,7 +72,7 @@ namespace Ryntra::Compiler {
 
     /**
      * @brief This class left empty implementation. Its primary function is to
-     * serve as the parent node of the tree. The statement is <i>doing an action</i>.
+     * serve as the parent node of the tree. The <b>statement</b> is <i>doing an action</i>.
      * Such as <code>if</code> and <code>for</code>.
      */
     class StatementNode : public IASTNode {};
