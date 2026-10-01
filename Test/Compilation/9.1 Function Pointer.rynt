@@ -1,0 +1,51 @@
+public int apply(ptr<Fn<int(int, int)>> f, int x, int y) {
+    return f(x, y);
+}
+
+public int add(int a, int b) {
+    return a + b;
+}
+
+public int sub(int a, int b) {
+    return a - b;
+}
+
+public void greet() {
+    __builtin_print("hi");
+}
+
+public int fact(int n) {
+    if (n <= 1) {
+        return 1;
+    }
+    return n * fact(n - 1);
+}
+
+public ptr<Fn<int(int, int)>> getAdd() {
+    return ptr(add);
+}
+
+public void main() {
+    ptr<Fn<int(int, int)>> p = ptr(add);
+    __builtin_print(p(3, 4));
+    __builtin_print("\n");
+
+    p = ptr(sub);
+    __builtin_print(p(10, 4));
+    __builtin_print("\n");
+
+    __builtin_print(apply(ptr(add), 5, 6));
+    __builtin_print("\n");
+
+    ptr<Fn<int(int)>> pf = ptr(fact);
+    __builtin_print(pf(5));
+    __builtin_print("\n");
+
+    ptr<Fn<void()>> pg = ptr(greet);
+    pg();
+    __builtin_print("\n");
+
+    ptr<Fn<int(int, int)>> pr = getAdd();
+    __builtin_print(pr(7, 8));
+    __builtin_print("\n");
+}

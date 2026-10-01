@@ -1,7 +1,7 @@
 #pragma once
 
 #include "ASTNodes.h"
-#include "SourceLocation/SourceLocation.h"
+#include "SourceLocation/SourceRangeBuilder.h"
 #include "antlr/RyntraParser.h"
 #include <memory>
 #include <vector>
@@ -11,8 +11,13 @@ namespace Ryntra::Compiler {
     public:
         std::shared_ptr<ProgramNode> visitProgram(antlr::RyntraParser::ProgramContext *ctx);
         std::shared_ptr<FunctionDefinitionNode> visitFunctionDefinition(antlr::RyntraParser::FunctionDefinitionContext *ctx);
+        std::shared_ptr<ConstructorDeclarationNode> visitConstructor(antlr::RyntraParser::ConstructorContext *ctx);
+        std::shared_ptr<StructDeclarationNode> visitStructDefinition(antlr::RyntraParser::StructDefinitionContext *ctx);
+        std::shared_ptr<IASTNode> visitStructMember(antlr::RyntraParser::StructMemberContext *ctx);
+        std::shared_ptr<ModifierNode> visitVisibilityModifier(antlr::RyntraParser::VisibilityModifierContext *ctx);
+        std::shared_ptr<AnnotationNode> visitAnnotation(antlr::RyntraParser::AnnotationContext *ctx);
         std::shared_ptr<ParameterNode> visitParameter(antlr::RyntraParser::ParameterContext *ctx);
-        std::vector<std::shared_ptr<ParameterNode>> visitParameterList(antlr::RyntraParser::ParameterListContext *ctx);
+        std::shared_ptr<ParameterListNode> visitParameterList(antlr::RyntraParser::ParameterListContext *ctx);
         std::shared_ptr<TypeSpecifierNode> visitTypeSpecifier(antlr::RyntraParser::TypeSpecifierContext *ctx);
         std::shared_ptr<ReferenceTypeNode> visitReferenceType(antlr::RyntraParser::TypeSpecifierContext *ctx);
         std::shared_ptr<BlockNode> visitBlock(antlr::RyntraParser::BlockContext *ctx);
@@ -54,38 +59,33 @@ namespace Ryntra::Compiler {
         std::shared_ptr<CastNode> visitCastExpression(antlr::RyntraParser::CastExpressionContext *ctx);
         std::shared_ptr<PtrExpressionNode> visitPtrExpression(antlr::RyntraParser::PtrExpressionContext *ctx);
         std::shared_ptr<MethodCallNode> visitMethodCallExpression(antlr::RyntraParser::MethodCallExpressionContext *ctx);
+        std::shared_ptr<MemberAccessNode> visitMemberAccessExpression(antlr::RyntraParser::MemberAccessExpressionContext *ctx);
+        std::shared_ptr<SelfExpressionNode> visitSelfReference(antlr::RyntraParser::SelfReferenceContext *ctx);
         std::shared_ptr<RefExpressionNode> visitRefExpression(antlr::RyntraParser::RefExpressionContext *ctx);
         std::shared_ptr<NewExpressionNode> visitNewExpression(antlr::RyntraParser::NewExpressionContext *ctx);
         std::shared_ptr<NewExpressionNode> visitNewWithInitExpression(antlr::RyntraParser::NewWithInitExpressionContext *ctx);
+        std::shared_ptr<AlignofNode> visitAlignofExpression(antlr::RyntraParser::AlignofExpressionContext *ctx);
         std::shared_ptr<ExpressionNode> visitConditionalAndExpression(antlr::RyntraParser::ConditionalAndExpressionContext *ctx);
         std::shared_ptr<ExpressionNode> visitConditionalOrExpression(antlr::RyntraParser::ConditionalOrExpressionContext *ctx);
         std::shared_ptr<ComparisonNode> visitComparisonExpression(antlr::RyntraParser::ComparisonExpressionContext *ctx);
         std::shared_ptr<ExpressionNode> visitAssignmentExpression(antlr::RyntraParser::AssignmentExpressionContext *ctx);
-        std::vector<std::shared_ptr<ExpressionNode>> visitArgumentList(antlr::RyntraParser::ArgumentListContext *ctx);
+        std::shared_ptr<ArgumentListNode> visitArgumentList(antlr::RyntraParser::ArgumentListContext *ctx);
 
     private:
-        SourceLocation getLoc(antlr4::ParserRuleContext *context) {
-            return SourceLocation(context->getStart()->getLine(), context->getStart()->getCharPositionInLine());
-        }
-
-        SourceLocation getLoc(antlr4::tree::TerminalNode *node) {
-            return SourceLocation(node->getSymbol()->getLine(), node->getSymbol()->getCharPositionInLine());
-        }
-
         // Walk into ptr/ref element types to locate a bare (non-Fn) function type
         static std::string findBareFunctionTypeText(antlr::RyntraParser::TypeSpecifierContext *ctx);
 
         template <typename Tp, typename... Args>
         std::shared_ptr<Tp> createNode(antlr4::ParserRuleContext *ctx, Args &&...args) {
             auto node = std::make_shared<Tp>(std::forward<Args>(args)...);
-            node->setLocation(getLoc(ctx));
+            node->setRange(makeSourceRange(ctx));
             return node;
         }
 
         template <typename Tp, typename... Args>
         std::shared_ptr<Tp> createNode(antlr4::tree::TerminalNode *node, Args &&...args) {
             auto astNode = std::make_shared<Tp>(std::forward<Args>(args)...);
-            astNode->setLocation(getLoc(node));
+            astNode->setRange(makeSourceRange(node));
             return astNode;
         }
     };

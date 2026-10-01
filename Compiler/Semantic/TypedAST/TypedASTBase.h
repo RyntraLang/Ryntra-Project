@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../TypeSystem.h"
-#include "SourceLocation/SourceLocation.h"
+#include "SourceLocation/SourceRange.h"
 #include <iostream>
 #include <memory>
 #include <string>
@@ -60,6 +60,16 @@ namespace Ryntra::Compiler::Semantic {
     class TypedPtrFromArrayNode;
     class TypedFunctionAddressNode;
     class TypedFunctionPointerCallNode;
+    class TypedStructDeclarationNode;
+    class TypedFieldDeclarationNode;
+    class TypedConstructorDeclarationNode;
+    class TypedSelfExpressionNode;
+    class TypedMemberAccessNode;
+    class TypedMemberAssignmentNode;
+    class TypedMethodCallNode;
+    class TypedParameterListNode;
+    class TypedConstructorCallNode;
+    class TypedNewObjectNode;
 
     class ITypedVisitor {
     public:
@@ -112,6 +122,16 @@ namespace Ryntra::Compiler::Semantic {
         virtual void visit(TypedPtrFromArrayNode &node) = 0;
         virtual void visit(TypedFunctionAddressNode &node) {}
         virtual void visit(TypedFunctionPointerCallNode &node) {}
+        virtual void visit(TypedStructDeclarationNode &node) {}
+        virtual void visit(TypedFieldDeclarationNode &node) {}
+        virtual void visit(TypedConstructorDeclarationNode &node) {}
+        virtual void visit(TypedSelfExpressionNode &node) {}
+        virtual void visit(TypedMemberAccessNode &node) {}
+        virtual void visit(TypedMemberAssignmentNode &node) {}
+        virtual void visit(TypedMethodCallNode &node) {}
+        virtual void visit(TypedParameterListNode &node) {}
+        virtual void visit(TypedConstructorCallNode &node) {}
+        virtual void visit(TypedNewObjectNode &node) {}
     };
 
     class ITypedASTNode {
@@ -121,8 +141,11 @@ namespace Ryntra::Compiler::Semantic {
         virtual std::string toString() const = 0;
         virtual void dump(int indent = 0) const = 0;
 
-        SourceLocation getLocation() const { return location; }
-        void setLocation(SourceLocation loc) { location = loc; }
+        SourceRange getRange() const { return range; }
+        void setRange(const SourceRange &r) { range = r; }
+
+        RYNTRA_DEPRECATED_LOCATION SourceLocation getLocation() const { return range.begin; }
+        RYNTRA_DEPRECATED_LOCATION void setLocation(const SourceLocation &loc) { range = SourceRange(loc); }
 
     protected:
         void printIndent(int indent) const {
@@ -131,7 +154,7 @@ namespace Ryntra::Compiler::Semantic {
         }
 
     private:
-        SourceLocation location;
+        SourceRange range;
     };
 
     class TypedExpressionNode : public ITypedASTNode {

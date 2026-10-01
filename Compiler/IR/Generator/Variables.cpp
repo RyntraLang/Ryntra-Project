@@ -8,8 +8,17 @@ namespace Ryntra::IR {
         auto varName = node.getName();
         auto varIRType = toIRType(node.getType());
 
+        // Lower default field initializers first so their IR values precede the
+        // struct allocation and are available when the instance is created.
+        std::vector<StructFieldDefault> fieldDefaults;
+        if (node.getType() && node.getType()->getKind() == Sem::TypeKind::STRUCT) {
+            const auto &structName = static_cast<const Sem::StructType &>(*node.getType()).getName();
+            fieldDefaults = buildStructFieldDefaults(structName);
+        }
+
         auto allocaInst = builder_.createAlloca(
             builder_.generateUniqueName(varName + "."), varIRType);
+        allocaInst->setFieldDefaults(std::move(fieldDefaults));
         allocaMap_[varName] = allocaInst;
 
         if (node.getInitializer()) {
@@ -60,10 +69,13 @@ namespace Ryntra::IR {
         auto it = allocaMap_.find(node.getName());
         if (it != allocaMap_.end()) {
             auto loadType = toIRType(node.getType());
-            lastValue_ = builder_.createLoad(
+            auto loadInst = builder_.createLoad(
                 builder_.generateUniqueName(""),
                 it->second,
                 loadType);
+            if (loadInst)
+                loadInst->setSourceRange(node.getRange());
+            lastValue_ = loadInst;
         } else {
             lastValue_ = nullptr;
         }
@@ -98,8 +110,11 @@ namespace Ryntra::IR {
         auto refType = std::make_shared<IR::RefType>(elemIRType);
         auto arrRef = builder_.createArrRef(
             builder_.generateUniqueName(""), arrayVal, indexVal, refType);
-        lastValue_ = builder_.createRefLoad(
+        auto loadInst = builder_.createRefLoad(
             builder_.generateUniqueName(""), arrRef, elemIRType);
+        if (loadInst)
+            loadInst->setSourceRange(node.getRange());
+        lastValue_ = loadInst;
     }
 
     void IRGenerator::visit(Compiler::Semantic::TypedArrayIndexAssignmentNode &node) {

@@ -4,21 +4,73 @@ namespace Ryntra::IR {
     namespace Sem = Compiler::Semantic;
 
     void IRGenerator::visit(Sem::TypedProgramNode &node) {
+        // Pre-create canonical IR struct types (fields filled below) so signature
+        // types can reference any struct by name regardless of declaration order.
+        for (const auto &strct : node.getStructs()) {
+            if (structTypeMap_.find(strct->getName()) == structTypeMap_.end()) {
+                auto irStruct = std::make_shared<IR::StructType>(strct->getName());
+                structTypeMap_[strct->getName()] = irStruct;
+                if (auto module = builder_.getModule())
+                    module->addType(irStruct);
+            }
+        }
+        // Fill in the fields declared by each struct, in source order, and apply
+        // any explicit `[AlignAs(N)]` alignment.
+        for (const auto &strct : node.getStructs()) {
+            auto irStruct = structTypeMap_[strct->getName()];
+            irStruct->setExplicitAlignment(strct->getAlignment());
+            for (const auto &field : strct->getFields()) {
+                irStruct->addField(field->getName(), toIRType(field->getType()));
+            }
+        }
+
+        // Struct Layout phase: compute byte offsets, padding and total size for
+        // every struct before any field is addressed. FieldRef must never derive
+        // its own offset; it consumes the offsets computed here.
+        for (const auto &strct : node.getStructs()) {
+            structTypeMap_[strct->getName()]->computeLayout();
+        }
+
+        for (const auto &strct : node.getStructs()) {
+            auto irStruct = structTypeMap_[strct->getName()];
+            std::vector<StructFieldInitializer> initializers;
+            for (const auto &field : strct->getFields()) {
+                if (!field->getInitializer()) {
+                    continue;
+                }
+                initializers.push_back(StructFieldInitializer{
+                    field->getName(),
+                    irStruct->getFieldOffset(field->getName()),
+                    field->getInitializer()});
+            }
+            if (!initializers.empty()) {
+                structFieldInitializers_[strct->getName()] = std::move(initializers);
+            }
+        }
+
         for (const auto &func : node.getFunctions()) {
             auto retType = toIRType(func->getReturnType());
 
             std::vector<Function::Parameter> irParams;
-            for (const auto &param : func->getParameters()) {
-                auto paramIRType = toIRType(param->getType());
-                irParams.emplace_back(param->getName(), paramIRType);
+            if (func->getParameterList()) {
+                for (const auto &param : func->getParameterList()->getParameters()) {
+                    auto paramIRType = toIRType(param->getType());
+                    irParams.emplace_back(param->getName(), paramIRType);
+                }
             }
 
             auto irFunc = builder_.createFunction(func->getName(), retType, irParams);
             functionMap_[func->getName()] = irFunc;
         }
 
+        registerStructFunctions(node.getStructs());
+
         for (const auto &func : node.getFunctions()) {
             func->accept(*this);
+        }
+
+        for (const auto &strct : node.getStructs()) {
+            strct->accept(*this);
         }
     }
 
@@ -27,29 +79,7 @@ namespace Ryntra::IR {
         if (!irFunc)
             return;
 
-        currentFunctionName_ = node.getName();
-        ifCounter_ = 0;
-
-        auto entry = builder_.createBasicBlock("entry");
-        irFunc->addBasicBlock(entry);
-        builder_.setInsertPoint(entry);
-
-        for (const auto &param : node.getParameters()) {
-            auto paramIRType = toIRType(param->getType());
-            auto allocaInst = builder_.createAlloca(
-                builder_.generateUniqueName(param->getName() + "."), paramIRType);
-            allocaMap_[param->getName()] = allocaInst;
-        }
-
-        node.getBody()->accept(*this);
-
-        if (irFunc->getReturnType()->isVoid()) {
-            auto &insts = entry->getInstructions();
-            if (insts.empty() ||
-                insts.back()->getOpcode() != Instruction::Opcode::Return) {
-                builder_.createReturn("");
-            }
-        }
+        generateCallableBody(irFunc, node.getParameterList(), *node.getBody(), /*hasSelf=*/false);
     }
 
     void IRGenerator::visit(Sem::TypedIfNode &node) {
@@ -266,8 +296,11 @@ namespace Ryntra::IR {
     }
 
     void IRGenerator::visit(Sem::TypedReturnNode &node) {
-        node.getValue()->accept(*this);
-        auto retVal = lastValue_;
+        std::shared_ptr<Value> retVal;
+        if (node.getValue()) {
+            node.getValue()->accept(*this);
+            retVal = lastValue_;
+        }
         builder_.createReturn("", retVal);
         lastValue_ = nullptr;
     }

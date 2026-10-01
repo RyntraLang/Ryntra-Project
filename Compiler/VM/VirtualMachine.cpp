@@ -1,9 +1,11 @@
 #include "VirtualMachine.h"
+#include "ErrorHandler/RuntimeError.h"
 #include <algorithm>
 #include <iostream>
 #include <stdexcept>
 
 namespace Ryntra::VM {
+    using Compiler::RuntimeErrorKind;
     VirtualMachine::VirtualMachine() {
         // Builtin table - index must match BytecodeGenerator::getBuiltinIndex
         builtins_ = {
@@ -106,7 +108,7 @@ namespace Ryntra::VM {
     VMValue VirtualMachine::execute(const std::string &entryPoint) {
         auto it = functionMap_.find(entryPoint);
         if (it == functionMap_.end()) {
-            throw std::runtime_error("Entry point not found: " + entryPoint);
+            trap(RuntimeErrorKind::InvalidFunction, "entry point not found: " + entryPoint);
         }
 
         callStack_.clear();
@@ -130,6 +132,7 @@ namespace Ryntra::VM {
             }
 
             const auto &inst = frame.func->instructions[frame.ip];
+            currentRange_ = inst.range;
 
             switch (inst.opcode) {
             case OpCode::LoadConst: {
@@ -141,7 +144,8 @@ namespace Ryntra::VM {
 
             case OpCode::LoadFunc: {
                 if (inst.operand < 0 || inst.operand >= static_cast<int32_t>(functionList_.size())) {
-                    throw std::runtime_error("Invalid function index: " + std::to_string(inst.operand));
+                    trap(RuntimeErrorKind::InvalidFunction,
+                         "invalid function index: " + std::to_string(inst.operand));
                 }
                 VMValue funcVal;
                 funcVal.setFunctionIndex(inst.operand);
@@ -151,7 +155,8 @@ namespace Ryntra::VM {
 
             case OpCode::Call: {
                 if (inst.operand < 0 || inst.operand >= static_cast<int32_t>(functionList_.size())) {
-                    throw std::runtime_error("Invalid function index: " + std::to_string(inst.operand));
+                    trap(RuntimeErrorKind::InvalidFunction,
+                         "invalid function index: " + std::to_string(inst.operand));
                 }
                 auto *callee = functionList_[inst.operand].get();
 
@@ -162,24 +167,23 @@ namespace Ryntra::VM {
                     callArgs[i] = pop();
                 }
 
+                CallFrame newFrame{callee, 0, std::move(callArgs), stack_.size()};
+                newFrame.callerName = frame.func->name;
+                newFrame.callSiteRange = currentRange_;
                 ++frame.ip;
-                callStack_.push_back(CallFrame{
-                    callee,
-                    0,
-                    std::move(callArgs),
-                    stack_.size()
-                });
+                callStack_.push_back(std::move(newFrame));
                 continue;
             }
 
             case OpCode::ICall: {
                 auto calleeVal = pop();
                 if (!calleeVal.isFunctionPtr()) {
-                    throw std::runtime_error("ICall: callee is not a function pointer");
+                    trap(RuntimeErrorKind::TypeMismatch, "ICall: callee is not a function pointer");
                 }
                 int32_t calleeIdx = calleeVal.getFunctionIndex();
                 if (calleeIdx < 0 || calleeIdx >= static_cast<int32_t>(functionList_.size())) {
-                    throw std::runtime_error("ICall: invalid function index: " + std::to_string(calleeIdx));
+                    trap(RuntimeErrorKind::InvalidFunction,
+                         "ICall: invalid function index: " + std::to_string(calleeIdx));
                 }
                 auto *callee = functionList_[calleeIdx].get();
 
@@ -189,19 +193,18 @@ namespace Ryntra::VM {
                     callArgs[i] = pop();
                 }
 
+                CallFrame newFrame{callee, 0, std::move(callArgs), stack_.size()};
+                newFrame.callerName = frame.func->name;
+                newFrame.callSiteRange = currentRange_;
                 ++frame.ip;
-                callStack_.push_back(CallFrame{
-                    callee,
-                    0,
-                    std::move(callArgs),
-                    stack_.size()
-                });
+                callStack_.push_back(std::move(newFrame));
                 continue;
             }
 
             case OpCode::BCall: {
                 if (inst.operand < 0 || inst.operand >= static_cast<int32_t>(builtins_.size())) {
-                    throw std::runtime_error("Invalid builtin index: " + std::to_string(inst.operand));
+                    trap(RuntimeErrorKind::InvalidBuiltin,
+                         "invalid builtin index: " + std::to_string(inst.operand));
                 }
                 size_t argCount = static_cast<size_t>(builtinArgCounts_[inst.operand]);
                 std::vector<VMValue> callArgs(argCount);
@@ -235,6 +238,8 @@ namespace Ryntra::VM {
             case OpCode::Add: {
                 auto b = pop();
                 auto a = pop();
+                ensureInitialized(a, "Use of an uninitialized value in '+'");
+                ensureInitialized(b, "Use of an uninitialized value in '+'");
                 if (a.isInt64() && b.isInt64())
                     push(VMValue(a.asInt64() + b.asInt64()));
                 else if (a.isInt32() && b.isInt32())
@@ -282,6 +287,8 @@ namespace Ryntra::VM {
             case OpCode::Sub: {
                 auto b = pop();
                 auto a = pop();
+                ensureInitialized(a, "Use of an uninitialized value in '-'");
+                ensureInitialized(b, "Use of an uninitialized value in '-'");
                 if (a.isInt64() && b.isInt64())
                     push(VMValue(a.asInt64() - b.asInt64()));
                 else if (a.isInt32() && b.isInt32())
@@ -307,6 +314,8 @@ namespace Ryntra::VM {
             case OpCode::Mul: {
                 auto b = pop();
                 auto a = pop();
+                ensureInitialized(a, "Use of an uninitialized value in '*'");
+                ensureInitialized(b, "Use of an uninitialized value in '*'");
                 if (a.isInt64() && b.isInt64())
                     push(VMValue(a.asInt64() * b.asInt64()));
                 else if (a.isInt32() && b.isInt32())
@@ -316,6 +325,8 @@ namespace Ryntra::VM {
             case OpCode::Div: {
                 auto b = pop();
                 auto a = pop();
+                ensureInitialized(a, "Use of an uninitialized value in '/'");
+                ensureInitialized(b, "Use of an uninitialized value in '/'");
                 if (a.isInt64() && b.isInt64() && b.asInt64() != 0)
                     push(VMValue(a.asInt64() / b.asInt64()));
                 else if (a.isInt32() && b.isInt32() && b.asInt32() != 0)
@@ -325,6 +336,8 @@ namespace Ryntra::VM {
             case OpCode::Mod: {
                 auto b = pop();
                 auto a = pop();
+                ensureInitialized(a, "Use of an uninitialized value in '%'");
+                ensureInitialized(b, "Use of an uninitialized value in '%'");
                 if (a.isInt64() && b.isInt64() && b.asInt64() != 0)
                     push(VMValue(a.asInt64() % b.asInt64()));
                 else if (a.isInt32() && b.isInt32() && b.asInt32() != 0)
@@ -334,6 +347,7 @@ namespace Ryntra::VM {
 
             case OpCode::BitNot: {
                 auto a = pop();
+                ensureInitialized(a, "Use of an uninitialized value in '~'");
                 if (a.isInt64())
                     push(VMValue(~a.asInt64()));
                 else if (a.isInt32())
@@ -342,6 +356,7 @@ namespace Ryntra::VM {
             }
             case OpCode::LogicalNot: {
                 auto a = pop();
+                ensureInitialized(a, "Use of an uninitialized value in '!'");
                 if (a.isInt32())
                     push(VMValue(a.asInt32() == 0 ? 1 : 0));
                 else if (a.isInt64())
@@ -531,8 +546,16 @@ namespace Ryntra::VM {
 
             case OpCode::LoadLocal: {
                 int32_t idx = inst.operand;
-                if (idx >= 0 && idx < static_cast<int32_t>(frame.locals.size()))
-                    push(frame.locals[idx]);
+                if (idx < 0) {
+                    trap(RuntimeErrorKind::InvalidOperation,
+                         "LoadLocal: negative slot index " + std::to_string(idx));
+                }
+                if (idx >= static_cast<int32_t>(frame.locals.size())) {
+                    frame.locals.resize(static_cast<size_t>(idx) + 1, VMValue::uninitialized());
+                }
+                ensureInitialized(frame.locals[idx],
+                                  "Use of an uninitialized local variable");
+                push(frame.locals[idx]);
                 break;
             }
 
@@ -570,7 +593,7 @@ namespace Ryntra::VM {
                 auto idxVal = pop();
                 auto arrVal = pop();
                 if (!arrVal.isArray()) {
-                    throw std::runtime_error("ArrGet on non-array value");
+                    trap(RuntimeErrorKind::TypeMismatch, "ArrGet on non-array value");
                 }
                 auto arrData = arrVal.asArray();
                 int32_t idx = 0;
@@ -579,7 +602,10 @@ namespace Ryntra::VM {
                 else if (idxVal.isInt64())
                     idx = static_cast<int32_t>(idxVal.asInt64());
                 if (idx < 0 || static_cast<size_t>(idx) >= arrData->elements.size())
-                    throw std::runtime_error("Array index out of bounds: " + std::to_string(idx));
+                    trap(RuntimeErrorKind::InvalidIndex,
+                         "array index out of bounds: " + std::to_string(idx));
+                ensureInitialized(arrData->elements[idx],
+                                  "Use of an uninitialized array element");
                 push(arrData->elements[idx]);
                 break;
             }
@@ -589,7 +615,7 @@ namespace Ryntra::VM {
                 auto idxVal = pop();
                 auto arrVal = pop();
                 if (!arrVal.isArray()) {
-                    throw std::runtime_error("ArrSet on non-array value");
+                    trap(RuntimeErrorKind::TypeMismatch, "ArrSet on non-array value");
                 }
                 auto arrData = arrVal.asArray();
                 int32_t idx = 0;
@@ -598,7 +624,8 @@ namespace Ryntra::VM {
                 else if (idxVal.isInt64())
                     idx = static_cast<int32_t>(idxVal.asInt64());
                 if (idx < 0 || static_cast<size_t>(idx) >= arrData->elements.size())
-                    throw std::runtime_error("Array index out of bounds: " + std::to_string(idx));
+                    trap(RuntimeErrorKind::InvalidIndex,
+                         "array index out of bounds: " + std::to_string(idx));
                 arrData->elements[idx] = val;
                 break;
             }
@@ -610,7 +637,8 @@ namespace Ryntra::VM {
             case OpCode::RefCreate: {
                 auto slotVal = pop();
                 if (!slotVal.isInt32()) {
-                    throw std::runtime_error("RefCreate requires an int32 slot index");
+                    trap(RuntimeErrorKind::InvalidArgument,
+                         "RefCreate requires an int32 slot index");
                 }
                 VMValue refVal;
                 refVal.setReferenceSlot(slotVal.asInt32());
@@ -623,19 +651,27 @@ namespace Ryntra::VM {
                 if (refVal.isArrayElementRef()) {
                     auto elemRef = refVal.asArrayElementRef();
                     if (elemRef.index >= 0 && static_cast<size_t>(elemRef.index) < elemRef.array->elements.size()) {
+                        ensureInitialized(elemRef.array->elements[elemRef.index],
+                                          "Use of an uninitialized array element");
                         push(elemRef.array->elements[elemRef.index]);
                     } else {
-                        throw std::runtime_error("RefLoad: invalid array element ref index");
+                        trap(RuntimeErrorKind::InvalidReference,
+                             "RefLoad: invalid array element ref index");
                     }
                 } else if (refVal.isReference()) {
                     int32_t slot = refVal.getReferenceSlot();
-                    if (slot >= 0 && slot < static_cast<int32_t>(frame.locals.size())) {
+                    if (slot >= 0) {
+                        if (slot >= static_cast<int32_t>(frame.locals.size()))
+                            frame.locals.resize(static_cast<size_t>(slot) + 1, VMValue::uninitialized());
+                        ensureInitialized(frame.locals[slot],
+                                          "Use of an uninitialized referenced variable");
                         push(frame.locals[slot]);
                     } else {
-                        throw std::runtime_error("RefLoad: invalid reference slot");
+                        trap(RuntimeErrorKind::InvalidReference,
+                             "RefLoad: invalid reference slot " + std::to_string(slot));
                     }
                 } else {
-                    throw std::runtime_error("RefLoad on non-reference value");
+                    trap(RuntimeErrorKind::TypeMismatch, "RefLoad on non-reference value");
                 }
                 break;
             }
@@ -648,17 +684,21 @@ namespace Ryntra::VM {
                     if (elemRef.index >= 0 && static_cast<size_t>(elemRef.index) < elemRef.array->elements.size()) {
                         elemRef.array->elements[elemRef.index] = val;
                     } else {
-                        throw std::runtime_error("RefStore: invalid array element ref index");
+                        trap(RuntimeErrorKind::InvalidReference,
+                             "RefStore: invalid array element ref index");
                     }
                 } else if (refVal.isReference()) {
                     int32_t slot = refVal.getReferenceSlot();
-                    if (slot >= 0 && slot < static_cast<int32_t>(frame.locals.size())) {
+                    if (slot >= 0) {
+                        if (slot >= static_cast<int32_t>(frame.locals.size()))
+                            frame.locals.resize(static_cast<size_t>(slot) + 1, VMValue::uninitialized());
                         frame.locals[slot] = val;
                     } else {
-                        throw std::runtime_error("RefStore: invalid reference slot");
+                        trap(RuntimeErrorKind::InvalidReference,
+                             "RefStore: invalid reference slot " + std::to_string(slot));
                     }
                 } else {
-                    throw std::runtime_error("RefStore on non-reference value");
+                    trap(RuntimeErrorKind::TypeMismatch, "RefStore on non-reference value");
                 }
                 break;
             }
@@ -666,7 +706,8 @@ namespace Ryntra::VM {
             case OpCode::PtrCreate: {
                 auto slotVal = pop();
                 if (!slotVal.isInt32()) {
-                    throw std::runtime_error("PtrCreate requires an int32 slot index");
+                    trap(RuntimeErrorKind::InvalidArgument,
+                         "PtrCreate requires an int32 slot index");
                 }
                 VMValue ptrVal;
                 ptrVal.setPointerSlot(slotVal.asInt32());
@@ -676,32 +717,55 @@ namespace Ryntra::VM {
 
             case OpCode::PtrLoad: {
                 auto ptrVal = pop();
-                if (ptrVal.isHeapPointer()) {
+                if (ptrVal.isStructFieldRef()) {
+                    auto ref = ptrVal.asStructFieldRef();
+                    if (ref.data->inBounds(ref.offset)) {
+                        ensureInitialized(ref.data->at(ref.offset),
+                                          "Use of an uninitialized struct field");
+                        push(ref.data->at(ref.offset));
+                    } else {
+                        trap(RuntimeErrorKind::InvalidPointer,
+                             "PtrLoad: invalid struct field offset " + std::to_string(ref.offset));
+                    }
+                } else if (ptrVal.isStruct()) {
+                    // Loading a whole struct yields the aggregate handle itself.
+                    push(ptrVal);
+                } else if (ptrVal.isHeapPointer()) {
                     int32_t slot = ptrVal.getHeapPointerSlot();
                     if (slot >= 0 && slot < static_cast<int32_t>(heap_.size())) {
+                        ensureInitialized(heap_[slot], "use of uninitialized heap storage");
                         push(heap_[slot]);
                     } else {
-                        throw std::runtime_error("PtrLoad: invalid heap pointer slot");
+                        trap(RuntimeErrorKind::InvalidPointer,
+                             "PtrLoad: invalid heap pointer slot " + std::to_string(slot));
                     }
                 } else if (ptrVal.isPointer()) {
                     if (ptrVal.isArrayPointer()) {
                         auto arrData = ptrVal.getArrayPointerData();
                         int32_t index = ptrVal.getPointerSlot();
                         if (index >= 0 && static_cast<size_t>(index) < arrData->elements.size()) {
+                            ensureInitialized(arrData->elements[index],
+                                              "Use of an uninitialized array element");
                             push(arrData->elements[index]);
                         } else {
-                            throw std::runtime_error("PtrLoad: invalid array element index");
+                            trap(RuntimeErrorKind::InvalidPointer,
+                                 "PtrLoad: invalid array element index");
                         }
                     } else {
                         int32_t slot = ptrVal.getPointerSlot();
-                        if (slot >= 0 && slot < static_cast<int32_t>(frame.locals.size())) {
+                        if (slot >= 0) {
+                            if (slot >= static_cast<int32_t>(frame.locals.size()))
+                                frame.locals.resize(static_cast<size_t>(slot) + 1, VMValue::uninitialized());
+                            ensureInitialized(frame.locals[slot],
+                                              "Use of an uninitialized variable");
                             push(frame.locals[slot]);
                         } else {
-                            throw std::runtime_error("PtrLoad: invalid pointer slot");
+                            trap(RuntimeErrorKind::InvalidPointer,
+                                 "PtrLoad: invalid pointer slot " + std::to_string(slot));
                         }
                     }
                 } else {
-                    throw std::runtime_error("PtrLoad on non-pointer value");
+                    trap(RuntimeErrorKind::TypeMismatch, "PtrLoad on non-pointer value");
                 }
                 break;
             }
@@ -709,12 +773,28 @@ namespace Ryntra::VM {
             case OpCode::PtrStore: {
                 auto val = pop();
                 auto ptrVal = pop();
-                if (ptrVal.isHeapPointer()) {
+                if (ptrVal.isStructFieldRef()) {
+                    auto ref = ptrVal.asStructFieldRef();
+                    if (ref.data->inBounds(ref.offset)) {
+                        ref.data->at(ref.offset) = val;
+                    } else {
+                        trap(RuntimeErrorKind::InvalidPointer,
+                             "PtrStore: invalid struct field offset " + std::to_string(ref.offset));
+                    }
+                } else if (ptrVal.isStruct()) {
+                    // Assigning to a whole struct copies field values.
+                    if (!val.isStruct()) {
+                        trap(RuntimeErrorKind::TypeMismatch,
+                             "PtrStore: cannot assign non-struct to struct");
+                    }
+                    ptrVal.asStruct()->assignFrom(*val.asStruct());
+                } else if (ptrVal.isHeapPointer()) {
                     int32_t slot = ptrVal.getHeapPointerSlot();
                     if (slot >= 0 && slot < static_cast<int32_t>(heap_.size())) {
                         heap_[slot] = val;
                     } else {
-                        throw std::runtime_error("PtrStore: invalid heap pointer slot");
+                        trap(RuntimeErrorKind::InvalidPointer,
+                             "PtrStore: invalid heap pointer slot " + std::to_string(slot));
                     }
                 } else if (ptrVal.isPointer()) {
                     if (ptrVal.isArrayPointer()) {
@@ -723,18 +803,22 @@ namespace Ryntra::VM {
                         if (index >= 0 && static_cast<size_t>(index) < arrData->elements.size()) {
                             arrData->elements[index] = val;
                         } else {
-                            throw std::runtime_error("PtrStore: invalid array element index");
+                            trap(RuntimeErrorKind::InvalidPointer,
+                                 "PtrStore: invalid array element index");
                         }
                     } else {
                         int32_t slot = ptrVal.getPointerSlot();
-                        if (slot >= 0 && slot < static_cast<int32_t>(frame.locals.size())) {
+                        if (slot >= 0) {
+                            if (slot >= static_cast<int32_t>(frame.locals.size()))
+                                frame.locals.resize(static_cast<size_t>(slot) + 1, VMValue::uninitialized());
                             frame.locals[slot] = val;
                         } else {
-                            throw std::runtime_error("PtrStore: invalid pointer slot");
+                            trap(RuntimeErrorKind::InvalidPointer,
+                                 "PtrStore: invalid pointer slot " + std::to_string(slot));
                         }
                     }
                 } else {
-                    throw std::runtime_error("PtrStore on non-pointer value");
+                    trap(RuntimeErrorKind::TypeMismatch, "PtrStore on non-pointer value");
                 }
                 break;
             }
@@ -763,7 +847,7 @@ namespace Ryntra::VM {
                 auto indexVal = pop();
                 auto arrVal = pop();
                 if (!arrVal.isArray()) {
-                    throw std::runtime_error("ArrRef on non-array value");
+                    trap(RuntimeErrorKind::TypeMismatch, "ArrRef on non-array value");
                 }
                 auto arrData = arrVal.asArray();
                 int32_t idx = 0;
@@ -772,7 +856,8 @@ namespace Ryntra::VM {
                 else if (indexVal.isInt64())
                     idx = static_cast<int32_t>(indexVal.asInt64());
                 if (idx < 0 || static_cast<size_t>(idx) >= arrData->elements.size())
-                    throw std::runtime_error("ArrRef: array index out of bounds: " + std::to_string(idx));
+                    trap(RuntimeErrorKind::InvalidIndex,
+                         "ArrRef: array index out of bounds: " + std::to_string(idx));
                 VMValue refVal;
                 refVal = VMValue(ArrayElementRef{arrData, idx});
                 push(refVal);
@@ -792,9 +877,9 @@ namespace Ryntra::VM {
                     int32_t slot = ptrVal.getHeapPointerSlot();
                     int32_t targetSlot = slot + idx;
                     if (targetSlot >= 0 && targetSlot < static_cast<int32_t>(heap_.size())) {
-                        VMValue refVal;
                         // TODO: Heap pointer isn't implement
-                        throw std::runtime_error("PtrIndexRef for heap pointers not yet implemented");
+                        trap(RuntimeErrorKind::Internal,
+                             "PtrIndexRef for heap pointers not yet implemented");
                     }
                 } else if (ptrVal.isPointer()) {
                     if (ptrVal.isArrayPointer()) {
@@ -809,7 +894,7 @@ namespace Ryntra::VM {
                         push(refVal);
                     }
                 } else {
-                    throw std::runtime_error("PtrIndexRef on non-pointer value");
+                    trap(RuntimeErrorKind::TypeMismatch, "PtrIndexRef on non-pointer value");
                 }
                 break;
             }
@@ -824,12 +909,64 @@ namespace Ryntra::VM {
             case OpCode::PtrFromArray: {
                 auto arrVal = pop();
                 if (!arrVal.isArray()) {
-                    throw std::runtime_error("PtrFromArray on non-array value");
+                    trap(RuntimeErrorKind::TypeMismatch, "PtrFromArray on non-array value");
                 }
                 auto arrData = arrVal.asArray();
                 VMValue ptrVal;
                 ptrVal.setArrayPointer(0, arrData);
                 push(ptrVal);
+                break;
+            }
+
+            case OpCode::NewStruct: {
+                // operand = size in bytes, operand2 = alignment in bytes. The
+                // aligned allocation is handled by StructData itself.
+                auto data = std::make_shared<StructData>(inst.operand, inst.operand2);
+                push(VMValue(data));
+                break;
+            }
+
+            case OpCode::FieldRef: {
+                auto base = pop();
+                std::shared_ptr<StructData> data;
+
+                if (base.isStruct()) {
+                    data = base.asStruct();
+                } else if (base.isStructFieldRef()) {
+                    auto ref = base.asStructFieldRef();
+                    if (ref.data->inBounds(ref.offset) &&
+                        ref.data->at(ref.offset).isStruct()) {
+                        data = ref.data->at(ref.offset).asStruct();
+                    } else {
+                        trap(RuntimeErrorKind::TypeMismatch,
+                             "FieldRef: nested field is not a struct");
+                    }
+                } else if (base.isPointer() && !base.isArrayPointer()) {
+                    int32_t slot = base.getPointerSlot();
+                    if (slot >= 0 && static_cast<size_t>(slot) < frame.locals.size() &&
+                        frame.locals[slot].isStruct()) {
+                        data = frame.locals[slot].asStruct();
+                    } else {
+                        trap(RuntimeErrorKind::TypeMismatch, "FieldRef: base is not a struct");
+                    }
+                } else if (base.isHeapPointer()) {
+                    int32_t slot = base.getHeapPointerSlot();
+                    if (slot >= 0 && static_cast<size_t>(slot) < heap_.size() && heap_[slot].isStruct()) {
+                        data = heap_[slot].asStruct();
+                    } else {
+                        trap(RuntimeErrorKind::TypeMismatch, "FieldRef: base is not a struct");
+                    }
+                } else {
+                    trap(RuntimeErrorKind::TypeMismatch, "FieldRef on non-struct value");
+                }
+
+                // The operand is the byte offset produced by the compiler's Struct
+                // Layout phase; FieldRef never computes an offset itself.
+                if (!data->inBounds(inst.operand)) {
+                    trap(RuntimeErrorKind::InvalidPointer,
+                         "FieldRef: field offset out of range");
+                }
+                push(VMValue(StructFieldRef{data, inst.operand}));
                 break;
             }
 
@@ -892,6 +1029,8 @@ namespace Ryntra::VM {
         "PinArray",
         "UnpinArray",
         "PtrFromArray",
+        "NewStruct",
+        "FieldRef",
         "Halt",
     };
 
@@ -910,14 +1049,17 @@ namespace Ryntra::VM {
                                            ? opcodeNames[idx]
                                            : "???";
                     std::cout << "  " << i << ": " << name;
-                    if (inst.opcode == OpCode::LoadConst ||
-                        inst.opcode == OpCode::LoadFunc ||
-                        inst.opcode == OpCode::StoreLocal ||
-                        inst.opcode == OpCode::LoadLocal ||
-                        inst.opcode == OpCode::Jmp ||
-                        inst.opcode == OpCode::Jz ||
-                        inst.opcode == OpCode::RefCreate ||
-                        inst.opcode == OpCode::PtrCreate) {
+                    if (inst.opcode == OpCode::NewStruct) {
+                        std::cout << " size=" << inst.operand << " align=" << inst.operand2;
+                    } else if (inst.opcode == OpCode::LoadConst ||
+                               inst.opcode == OpCode::LoadFunc ||
+                               inst.opcode == OpCode::StoreLocal ||
+                               inst.opcode == OpCode::LoadLocal ||
+                               inst.opcode == OpCode::Jmp ||
+                               inst.opcode == OpCode::Jz ||
+                               inst.opcode == OpCode::RefCreate ||
+                               inst.opcode == OpCode::PtrCreate ||
+                               inst.opcode == OpCode::FieldRef) {
                         std::cout << " " << inst.operand;
                     } else if (inst.opcode == OpCode::Call || inst.opcode == OpCode::BCall) {
                         std::cout << " " << inst.operand;
@@ -935,9 +1077,32 @@ namespace Ryntra::VM {
 
     VMValue VirtualMachine::pop() {
         if (stack_.empty())
-            throw std::runtime_error("Stack underflow");
+            trap(RuntimeErrorKind::StackUnderflow, "stack underflow while reading an operand");
         VMValue v = stack_.back();
         stack_.pop_back();
         return v;
+    }
+
+    std::vector<Compiler::RuntimeStackFrame> VirtualMachine::buildTraceback() const {
+        std::vector<Compiler::RuntimeStackFrame> trace;
+        // callStack_[0] is the entry function (no call site). Every frame above it
+        // records the call that entered it; report those innermost first.
+        for (size_t i = callStack_.size(); i-- > 1;) {
+            const CallFrame &frame = callStack_[i];
+            trace.push_back(Compiler::RuntimeStackFrame{frame.callerName, frame.callSiteRange});
+        }
+        return trace;
+    }
+
+    void VirtualMachine::trap(const RuntimeErrorKind kind, const std::string &description) const {
+        throw Compiler::RuntimeErrorException(kind, description, currentRange_, buildTraceback());
+    }
+
+    void VirtualMachine::ensureInitialized(const VMValue &value, const char *what) const {
+        // A never-assigned slot holds either an explicit Uninitialized value or a
+        // default-constructed Void; both must not be read.
+        if (value.isUninitialized() || value.isVoid()) {
+            trap(RuntimeErrorKind::UninitializedValue, what);
+        }
     }
 } // namespace Ryntra::VM

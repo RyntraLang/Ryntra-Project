@@ -1,0 +1,3 @@
+public void main() {
+    ptr<Fn<int(int)> p;
+}

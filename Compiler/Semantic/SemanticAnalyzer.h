@@ -3,16 +3,27 @@
 #include "../AST/ASTNodes.h"
 #include "../AST/ASTVisitor.h"
 #include "Compiler/GeneratedHeader/AllNodesVisitor.h"
+#include "CompilationMode.h"
 #include "SymbolTable.h"
 #include "TypedAST.h"
+#include <unordered_map>
 
 namespace Ryntra::Compiler::Semantic {
     class SemanticAnalyzer : public AllNodesVisitor {
     public:
         SemanticAnalyzer() = default;
 
+        explicit SemanticAnalyzer(CompilationMode mode) : compilationMode(mode) {}
+
+        void setCompilationMode(CompilationMode mode) { compilationMode = mode; }
+
+        [[nodiscard]] CompilationMode getCompilationMode() const { return compilationMode; }
+
         void analyze(const std::shared_ptr<IASTNode> &root);
         std::shared_ptr<TypedProgramNode> getTypedAST() const { return typedProgram; }
+
+        // Declaration index collected during analysis, for tooling (hover / definition).
+        [[nodiscard]] const std::vector<SymbolDefinition> &getDefinitions() const { return symbolTable.getDefinitions(); }
 
         // Visitor methods
         void visit(ProgramNode &node) override;
@@ -55,10 +66,18 @@ namespace Ryntra::Compiler::Semantic {
         void visit(PtrExpressionNode &node) override;
         void visit(MethodCallNode &node) override;
         void visit(NewExpressionNode &node) override;
+        void visit(AlignofNode &node) override;
         void visit(DeleteStatementNode &node) override;
         void visit(FixedNode &node) override;
+        void visit(StructDeclarationNode &node) override;
+        void visit(FieldDeclarationNode &node) override;
+        void visit(ConstructorDeclarationNode &node) override;
+        void visit(SelfExpressionNode &node) override;
+        void visit(MemberAccessNode &node) override;
+        void visit(MemberAssignmentNode &node) override;
 
     private:
+        CompilationMode compilationMode = CompilationMode::CLI;
         SymbolTable symbolTable;
         std::shared_ptr<TypedProgramNode> typedProgram;
 
@@ -69,26 +88,52 @@ namespace Ryntra::Compiler::Semantic {
         std::shared_ptr<Type> expectedReturnType; // Expected return type from context (for __builtin_scan)
         int loopDepth_ = 0;                       // Current loop nesting depth
         int unsafeDepth_ = 0;                     // Current unsafe block nesting depth
+        std::shared_ptr<STType::StructType> currentStruct; // Enclosing struct being analyzed (for `self`)
+        // Struct name -> its semantic type (fields + member symbol scope). Used to
+        // resolve fields/methods from the `TypeSystem::StructType` stored in the
+        // typed AST, which only carries the struct name.
+        std::unordered_map<std::string, std::shared_ptr<STType::StructType>> structTypes;
 
         // Convert STType::Type -> TypeSystem::Type (for TypedAST nodes)
         static std::shared_ptr<Type> toTypedType(const TypePtr &stType);
 
-        // Build a TypePtr from a type-name string
-        static TypePtr makeSTType(const std::string &name);
+        // Register a struct's field/method/constructor symbols into its member scope.
+        // Duplicate fields / member signatures are diagnosed here.
+        void registerStructMembers(const std::shared_ptr<STType::StructType> &structType,
+                                   const std::shared_ptr<MemberListNode> &memberList);
+
+        // Read an `[AlignAs(N)]` annotation from a struct declaration and apply it to
+        // the semantic struct type. Reports a diagnostic and ignores invalid values.
+        void applyStructAlignment(StructDeclarationNode &node,
+                                  const std::shared_ptr<STType::StructType> &structType);
+
+        // Build a TypePtr from a type-name string (resolves named struct types)
+        TypePtr makeSTType(const std::string &name);
 
         // Recursively check that every named type inside a type-name string is known
-        void checkKnownTypeNames(const std::string &name, const SourceLocation &loc);
+        void checkKnownTypeNames(const std::string &name, const SourceRange &range);
 
         // Extract variable name from a typed expression (for pointer operations)
         static std::string getPtrVarName(const std::shared_ptr<TypedExpressionNode> &expr,
-                                          const SourceLocation &loc);
+                                          const SourceRange &range);
 
         // Build a TypedAST FunctionType from a FunctionSymbol
         static std::shared_ptr<FunctionType> functionTypeOf(const std::shared_ptr<FunctionSymbol> &fn);
 
         // Select the overload to take the address of, matching the expected type if available
         std::shared_ptr<FunctionSymbol> pickFunctionForAddress(const std::shared_ptr<OverloadSet> &ovSet,
-                                                               const SourceLocation &loc);
+                                                               const SourceRange &range);
+
+        // Resolve a struct constructor overload for the given (already typed)
+        // arguments. Returns the selected constructor or nullptr. `outAnyDeclared`
+        // is set when the struct declares at least one constructor; `outParamTypes`
+        // receives the selected overload's parameter types (for mangling).
+        std::shared_ptr<FunctionSymbol> resolveConstructor(
+            const std::shared_ptr<STType::StructType> &structType,
+            const std::vector<std::shared_ptr<TypedExpressionNode>> &typedArgs,
+            std::vector<TypePtr> &outParamTypes,
+            bool &outAnyDeclared,
+            const SourceRange &range);
     };
 
 } // namespace Ryntra::Compiler::Semantic

@@ -1,112 +1,42 @@
 cmake_minimum_required(VERSION 3.15)
 project(RyntraProject)
 
-find_package(Python3 REQUIRED COMPONENTS Interpreter)
-
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_TOOLCHAIN_FILE "C:/vcpkg/vcpkg/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "vcpkg toolchain")
-set(antlr4-runtime_DIR "C:/vcpkg/vcpkg/vcpkg/installed/x64-windows/share/antlr4-runtime")
 
-set(GEN_SCRIPT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Scripts/GenAllNodesVisitor")
-set(GEN_SCRIPT "${GEN_SCRIPT_DIR}/GenAllNodesVisitor.py")
-set(GENERATED_HEADER "${CMAKE_CURRENT_BINARY_DIR}/Compiler/GeneratedHeader/AllNodesVisitor.h")
-file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/Compiler/GeneratedHeader")
-
-add_custom_command(
-        OUTPUT ${GENERATED_HEADER}
-        COMMAND ${Python3_EXECUTABLE} ${GEN_SCRIPT} ${GENERATED_HEADER}
-        WORKING_DIRECTORY ${GEN_SCRIPT_DIR}
-        DEPENDS ${GEN_SCRIPT}
-        COMMENT "Generating AllNodesVisitor.h from GenAllNodesVisitor.py"
-        VERBATIM
+set(ALL_PROJECTS
+        Compiler
+        LSP
+        CodeEditor
 )
 
-add_custom_target(GenerateAllNodesVisitor ALL DEPENDS ${GENERATED_HEADER})
+set(ENABLE_PROJECTS "all" CACHE STRING "List of projects to build")
 
-set(ANTLR_SOURCE
-        ANTLR/antlr-generated/antlr/RyntraBaseListener.cpp
-        ANTLR/antlr-generated/antlr/RyntraBaseVisitor.cpp
-        ANTLR/antlr-generated/antlr/RyntraLexer.cpp
-        ANTLR/antlr-generated/antlr/RyntraParser.cpp
-        ANTLR/antlr-generated/antlr/RyntraListener.cpp
-        ANTLR/antlr-generated/antlr/RyntraVisitor.cpp
-)
+if (ENABLE_PROJECTS STREQUAL "all")
+    set(ENABLED_PROJECT_LIST ${ALL_PROJECTS})
+else ()
+    set(ENABLED_PROJECT_LIST ${ENABLE_PROJECTS})
+endif ()
 
-set(AST_SOURCE
-        Compiler/AST/ASTNodes.cpp
-        Compiler/AST/ASTBuilder.cpp
-        ${GENERATED_HEADER}
-)
+foreach (proj ${ENABLED_PROJECT_LIST})
+    if (NOT proj IN_LIST ALL_PROJECTS)
+        message(FATAL_ERROR "Unknown project: ${proj}. Available: ${ALL_PROJECTS}")
+    endif ()
+endforeach ()
 
-set(UTILITY_SOURCE
-        Utility/ErrorHandler/ErrorHandler.cpp
-        Utility/ErrorHandler/LexParseErrorHandler.h
-)
+message(STATUS "Enabled projects: ${ENABLED_PROJECT_LIST}")
 
-set(SEMANTIC_SOURCE
-        Compiler/Semantic/SymbolTable.cpp
-        Compiler/Semantic/SemanticAnalyzer.cpp
-        Compiler/Semantic/Sema/Assignments.cpp
-        Compiler/Semantic/Sema/ControlFlow.cpp
-        Compiler/Semantic/Sema/Declarations.cpp
-        Compiler/Semantic/Sema/FunctionCall.cpp
-        Compiler/Semantic/Sema/Literals.cpp
-        Compiler/Semantic/Sema/Operators.cpp
-        Compiler/Semantic/Sema/RefAndPtr.cpp
-)
+# This should be uncommented when the project is ready for deploying
+# But for now, it will left commented.
 
-set(IR_SOURCE
-        Compiler/IR/IRBuilder.h
-        Compiler/IR/IRBuilder.cpp
-        Compiler/IR/IRGenerator.h
-        Compiler/IR/IRGenerator.cpp
-        Compiler/IR/Generator/ControlFlow.cpp
-        Compiler/IR/Generator/Expressions.cpp
-        Compiler/IR/Generator/Memory.cpp
-        Compiler/IR/Generator/Operations.cpp
-        Compiler/IR/Generator/ShortCircuit.cpp
-        Compiler/IR/Generator/Variables.cpp
-        Compiler/IR/Type.h
-        Compiler/IR/Value.h
-        Compiler/IR/Instruction.h
-        Compiler/IR/Constant.h
-        Compiler/IR/BasicBlock.h
-        Compiler/IR/Function.h
-        Compiler/IR/Module.h
-        Compiler/IR/ImmediateValue.h
-)
+#foreach (proj ${ALL_PROJECTS})
+#    if (proj IN_LIST ENABLED_PROJECT_LIST)
+#        add_subdirectory(${proj})
+#    else ()
+#        message(STATUS "Skipping: ${proj}")
+#    endif ()
+#endforeach ()
 
-set(VM_SOURCE
-        Compiler/VM/VMValue.h
-        Compiler/VM/Bytecode.h
-        Compiler/VM/BytecodeGenerator.h
-        Compiler/VM/BytecodeGenerator.cpp
-        Compiler/VM/VirtualMachine.h
-        Compiler/VM/VirtualMachine.cpp
-)
-
-find_package(antlr4-runtime REQUIRED)
-
-add_executable(RyntraProject
-        main.cpp
-        ${ANTLR_SOURCE}
-        ${AST_SOURCE}
-        ${UTILITY_SOURCE}
-        ${SEMANTIC_SOURCE}
-        ${IR_SOURCE}
-        ${VM_SOURCE}
-)
-
+add_subdirectory(Compiler)
 add_subdirectory(CodeEditor)
-
-add_dependencies(RyntraProject GenerateAllNodesVisitor)
-
-target_link_libraries(RyntraProject PRIVATE antlr4_shared)
-target_include_directories(RyntraProject PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/ANTLR/antlr-generated
-        ${CMAKE_CURRENT_SOURCE_DIR}/Compiler/
-        ${CMAKE_CURRENT_SOURCE_DIR}/Utility
-        ${CMAKE_CURRENT_SOURCE_DIR}/Compiler/
-        ${CMAKE_CURRENT_SOURCE_DIR}/
-        ${CMAKE_CURRENT_BINARY_DIR} #< Avoid pollute the source tree
-)
+add_subdirectory(LSP)

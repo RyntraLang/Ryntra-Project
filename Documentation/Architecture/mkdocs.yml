@@ -1,0 +1,52 @@
+site_name: Ryntra Compilation Architecture
+nav:
+  - Index: index.md
+  - AST:
+      - AST Node: AST/ASTNodes.md
+theme:
+    name: material
+    language: en
+    font:
+        code: Cascadia Code
+        text: Noto Sans
+    theme:
+        icon:
+            admonition:
+                note: octicons/tag-16
+                abstract: octicons/checklist-16
+                info: octicons/info-16
+                tip: octicons/squirrel-16
+                success: octicons/check-16
+                question: octicons/question-16
+                warning: octicons/alert-16
+                failure: octicons/x-circle-16
+                danger: octicons/zap-16
+                bug: octicons/bug-16
+                example: octicons/beaker-16
+                quote: octicons/quote-16
+    features:
+        - navigation.tabs
+        - content.code.copy
+        - header.autohide
+        - navigation.indexes
+markdown_extensions:
+    - pymdownx.arithmatex:
+        generic: true
+    - def_list
+    - pymdownx.tasklist:
+        custom_checkbox: true
+    - footnotes
+    - pymdownx.highlight:
+        anchor_linenums: true
+        line_spans: __span
+        pygments_lang_class: true
+    - attr_list
+    - md_in_html
+    - pymdownx.blocks.caption
+    - pymdownx.inlinehilite
+    - pymdownx.snippets
+    - pymdownx.superfences
+    - pymdownx.tabbed:
+        alternate_style: true
+    - admonition
+    - pymdownx.details

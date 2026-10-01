@@ -1,0 +1,795 @@
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_EXE = REPO_ROOT / "cmake-build-debug" / "LSP" / "ryntra-lsp.exe"
+EXE_PATH = Path(os.environ.get("RYNTRA_LSP_EXE", DEFAULT_EXE))
+
+VALID_SOURCE = 'public void main() {\n    __builtin_print("Hello World");\n}\n'
+INVALID_SOURCE = "public void main() {\n"
+NO_MAIN_SOURCE = 'public void greet() {\n    __builtin_print("hi");\n}\n'
+NO_MAIN_WITH_ERROR_SOURCE = "public void greet() {\n    __builtin_print(missing);\n}\n"
+INCOMPLETE_MEMBER_SOURCE = (
+    "public struct Rectangle {\n"
+    "    public int width;\n"
+    "    public int height;\n"
+    "}\n"
+    "public void main() {\n"
+    "    Rectangle r = Rectangle(1);\n"
+    "    r.\n"
+    "}\n"
+)
+PARTIAL_IDENTIFIER_SOURCE = (
+    "public struct Rectangle {\n"
+    "    public int width;\n"
+    "}\n"
+    "public void main() {\n"
+    "    Rectangle rect = Rectangle(1);\n"
+    "    r\n"
+    "}\n"
+)
+POINTER_SOURCE = (
+    "public void main() {\n"
+    "    ptr<int> p;\n"
+    "    p.\n"
+    "}\n"
+)
+POINTER_STRUCT_SOURCE = (
+    "public struct Rectangle {\n"
+    "    public int width;\n"
+    "}\n"
+    "public void main() {\n"
+    "    ptr<Rectangle> p;\n"
+    "    p.\n"
+    "}\n"
+)
+CALL_ARGUMENT_MEMBER_SOURCE = (
+    "public struct Rectangle {\n"
+    "    public int width;\n"
+    "    public int height;\n"
+    "}\n"
+    "public void main() {\n"
+    "    Rectangle r = Rectangle(1);\n"
+    "    __builtin_print(r.);\n"
+    "}\n"
+)
+CALL_ARGUMENT_MEMBER_SOURCE_NO_CLOSE = (
+    "public struct Rectangle {\n"
+    "    public int width;\n"
+    "    public int height;\n"
+    "}\n"
+    "public void main() {\n"
+    "    Rectangle r = Rectangle(1);\n"
+    "    __builtin_print(r.\n"
+    "}\n"
+)
+SEMANTIC_SOURCE = (
+    "// header comment\n"
+    "public struct Rectangle {\n"
+    "    public int width;\n"
+    "}\n"
+    "public void main() {\n"
+    "    Rectangle rect = Rectangle(1);\n"
+    '    __builtin_print("hi");\n'
+    "    int count = 42;\n"
+    '    string title = "t";\n'
+    "    rect.width = count;\n"
+    "}\n"
+)
+SEMANTIC_TOKEN_TYPES = [
+    "keyword", "type", "function", "variable", "property",
+    "parameter", "struct", "comment", "string", "number", "operator",
+]
+SYMBOL_SOURCE = (
+    "public void greet() {\n"
+    '    __builtin_print("hi");\n'
+    "}\n"
+    "public void main() {\n"
+    "    int value = 42;\n"
+    "    __builtin_print(value);\n"
+    "    greet();\n"
+    "}\n"
+)
+STRUCT_SOURCE = (
+    "public struct Rectangle {\n"
+    "    public int width;\n"
+    "    public int height;\n"
+    "\n"
+    "    public int getArea() {\n"
+    "        return self.width * self.height;\n"
+    "    }\n"
+    "}\n"
+    "\n"
+    "public void main() {\n"
+    "    Rectangle rect = Rectangle(100, 200);\n"
+    "    __builtin_print(rect.getArea());\n"
+    "    rect.width = 5;\n"
+    "}\n"
+)
+CONSTRUCTOR_SOURCE = (
+    "public struct Rectangle {\n"
+    "    public int width;\n"
+    "    public int height;\n"
+    "\n"
+    "    public Rectangle(int width, int height) {\n"
+    "        self.width = width;\n"
+    "    }\n"
+    "}\n"
+    "\n"
+    "public void main() {\n"
+    "    Rectangle rect = Rectangle(100, 200);\n"
+    "    __builtin_print(rect.width);\n"
+    "}\n"
+)
+
+def frame(message):
+    body = json.dumps(message).encode("utf-8")
+    return b"Content-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body
+
+def read_message(stream):
+    headers = {}
+    while True:
+        line = stream.readline()
+        if not line:
+            return None
+        line = line.rstrip(b"\r\n")
+        if line == b"":
+            break
+        if b":" in line:
+            key, value = line.split(b":", 1)
+            headers[key.strip().lower()] = value.strip()
+
+    length = int(headers[b"content-length"])
+    return json.loads(stream.read(length).decode("utf-8"))
+
+class ServerSession:
+    def __init__(self):
+        self.process = subprocess.Popen(
+            [str(EXE_PATH)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+    def send(self, message):
+        self.process.stdin.write(frame(message))
+        self.process.stdin.flush()
+
+    def read(self):
+        return read_message(self.process.stdout)
+
+    def request(self, message):
+        self.send(message)
+        request_id = message.get("id")
+
+        while True:
+            incoming = self.read()
+            if incoming is None:
+                raise AssertionError(f"No response for request id {request_id}")
+            if incoming.get("id") == request_id:
+                return incoming
+
+    def wait(self):
+        try:
+            self.process.stdin.close()
+        except OSError:
+            pass
+        return self.process.wait(timeout=5)
+
+    def stderr_text(self):
+        return self.process.stderr.read().decode("utf-8", errors="replace")
+
+def initialize_request(request_id=1):
+    return {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "method": "initialize",
+        "params": {
+            "processId": None,
+            "clientInfo": {"name": "lsp-test", "version": "1.0"},
+            "rootUri": None,
+            "capabilities": {},
+        },
+    }
+
+def test_initialize_shutdown_exit():
+    server = ServerSession()
+
+    response = server.request(initialize_request())
+    assert response is not None, "no response to initialize"
+    assert response["id"] == 1, "initialize response id mismatch"
+    assert "capabilities" in response["result"], "missing capabilities"
+    assert response["result"]["serverInfo"]["name"] == "Ryntra Language Server"
+
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    response = server.request({"jsonrpc": "2.0", "id": 2, "method": "shutdown"})
+    assert response is not None and response["id"] == 2, "no response to shutdown"
+    assert response["result"] is None, "shutdown result must be null"
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    assert server.wait() == 0, "exit after shutdown must return 0"
+
+def test_request_before_initialize():
+    server = ServerSession()
+
+    response = server.request({"jsonrpc": "2.0", "id": 1, "method": "shutdown"})
+    assert response is not None, "no response to request before initialize"
+    assert response["error"]["code"] == -32002, "expected ServerNotInitialized"
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+def test_unknown_method():
+    server = ServerSession()
+
+    server.request(initialize_request())
+    response = server.request({"jsonrpc": "2.0", "id": 2, "method": "textDocument/references", "params": {}})
+    assert response is not None, "no response to unknown method"
+    assert response["error"]["code"] == -32601, "expected MethodNotFound"
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+def test_exit_without_shutdown():
+    server = ServerSession()
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    assert server.wait() == 1, "exit without shutdown must return 1"
+
+
+def test_document_lifecycle():
+    server = ServerSession()
+
+    server.request(initialize_request())
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    uri = "file:///test.rynt"
+    server.send({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {"textDocument": {"uri": uri, "languageId": "ryntra", "version": 1, "text": "int a = 1\n"}},
+    })
+    server.send({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didChange",
+        "params": {"textDocument": {"uri": uri, "version": 2}, "contentChanges": [{"text": "int a = 2\n"}]},
+    })
+    server.send({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didChange",
+        "params": {
+            "textDocument": {"uri": uri, "version": 3},
+            "contentChanges": [{
+                "range": {"start": {"line": 0, "character": 6}, "end": {"line": 0, "character": 7}},
+                "text": "b",
+            }],
+        },
+    })
+    server.send({"jsonrpc": "2.0", "method": "textDocument/didClose", "params": {"textDocument": {"uri": uri}}})
+
+    response = server.request({"jsonrpc": "2.0", "id": 2, "method": "shutdown"})
+    assert response["result"] is None, "shutdown after document events failed"
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    assert server.wait() == 0, "exit after document lifecycle must return 0"
+
+    errors = server.stderr_text()
+    assert "Invalid notification" not in errors, errors
+    assert "unopened document" not in errors, errors
+
+
+def test_change_without_open():
+    server = ServerSession()
+
+    server.request(initialize_request())
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+    server.send({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didChange",
+        "params": {"textDocument": {"uri": "file:///missing.rynt", "version": 1}, "contentChanges": [{"text": "int a = 1\n"}]},
+    })
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+    assert "unopened document" in server.stderr_text()
+
+
+def test_malformed_did_change():
+    server = ServerSession()
+
+    server.request(initialize_request())
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+    server.send({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didChange",
+        "params": {"textDocument": {"uri": "file:///bad.rynt", "version": 1}},
+    })
+
+    response = server.request({"jsonrpc": "2.0", "id": 2, "method": "shutdown"})
+    assert response["result"] is None, "server did not survive a malformed notification"
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    assert server.wait() == 0
+
+    assert "Invalid notification" in server.stderr_text()
+
+
+def did_open(uri, text, version=1):
+    return {
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {"textDocument": {"uri": uri, "languageId": "ryntra", "version": version, "text": text}},
+    }
+
+
+def request_message(request_id, method, params):
+    return {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}
+
+
+def position_params(uri, line, character):
+    return {"textDocument": {"uri": uri}, "position": {"line": line, "character": character}}
+
+
+def error_diagnostics(notification):
+    assert notification["method"] == "textDocument/publishDiagnostics", notification
+    return [diagnostic for diagnostic in notification["params"]["diagnostics"] if diagnostic["severity"] == 1]
+
+
+def test_diagnostics_for_invalid_source():
+    server = ServerSession()
+
+    server.request(initialize_request())
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    server.send(did_open("file:///invalid.rynt", INVALID_SOURCE))
+    notification = server.read()
+    assert notification["params"]["uri"] == "file:///invalid.rynt"
+    assert error_diagnostics(notification), "expected at least one error diagnostic"
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
+def test_diagnostics_clean_for_valid_source():
+    server = ServerSession()
+
+    server.request(initialize_request())
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    server.send(did_open("file:///valid.rynt", VALID_SOURCE))
+    notification = server.read()
+    assert not error_diagnostics(notification), error_diagnostics(notification)
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
+def test_diagnostics_update_on_change():
+    server = ServerSession()
+
+    server.request(initialize_request())
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    uri = "file:///change.rynt"
+    server.send(did_open(uri, VALID_SOURCE))
+    assert not error_diagnostics(server.read())
+
+    server.send({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didChange",
+        "params": {"textDocument": {"uri": uri, "version": 2}, "contentChanges": [{"text": INVALID_SOURCE}]},
+    })
+    assert error_diagnostics(server.read()), "expected errors after breaking the document"
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
+def test_diagnostics_cleared_on_close():
+    server = ServerSession()
+
+    server.request(initialize_request())
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    uri = "file:///close.rynt"
+    server.send(did_open(uri, INVALID_SOURCE))
+    assert error_diagnostics(server.read())
+
+    server.send({"jsonrpc": "2.0", "method": "textDocument/didClose", "params": {"textDocument": {"uri": uri}}})
+    notification = server.read()
+    assert notification["method"] == "textDocument/publishDiagnostics"
+    assert notification["params"]["diagnostics"] == []
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
+def test_hover_and_definition():
+    server = ServerSession()
+
+    initialization = server.request(initialize_request())
+    capabilities = initialization["result"]["capabilities"]
+    assert capabilities.get("hoverProvider") is True, capabilities
+    assert capabilities.get("definitionProvider") is True, capabilities
+
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    uri = "file:///symbols.rynt"
+    server.send(did_open(uri, SYMBOL_SOURCE))
+
+    hover = server.request(request_message(10, "textDocument/hover", position_params(uri, 5, 22)))
+    value = hover["result"]["contents"]["value"]
+    assert "value" in value and "int" in value, value
+
+    definition = server.request(request_message(11, "textDocument/definition", position_params(uri, 5, 22)))
+    declared = definition["result"]["range"]
+    assert declared["start"]["line"] == 4, declared
+    assert declared["start"]["character"] <= 8 <= declared["end"]["character"], declared
+
+    function_hover = server.request(request_message(12, "textDocument/hover", position_params(uri, 6, 5)))
+    assert "greet" in function_hover["result"]["contents"]["value"]
+
+    function_definition = server.request(request_message(13, "textDocument/definition", position_params(uri, 6, 5)))
+    assert function_definition["result"]["range"]["start"]["line"] == 0, function_definition
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
+def test_struct_member_hover_and_definition():
+    server = ServerSession()
+
+    server.request(initialize_request())
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    uri = "file:///struct.rynt"
+    server.send(did_open(uri, STRUCT_SOURCE))
+
+    member_hover = server.request(request_message(20, "textDocument/hover", position_params(uri, 12, 10)))
+    member_text = member_hover["result"]["contents"]["value"]
+    assert "width" in member_text and "int" in member_text, member_text
+
+    member_definition = server.request(request_message(21, "textDocument/definition", position_params(uri, 12, 10)))
+    assert member_definition["result"]["range"]["start"]["line"] == 1, member_definition
+
+    method_hover = server.request(request_message(22, "textDocument/hover", position_params(uri, 11, 26)))
+    method_text = method_hover["result"]["contents"]["value"]
+    assert "getArea" in method_text, method_text
+
+    method_definition = server.request(request_message(23, "textDocument/definition", position_params(uri, 11, 26)))
+    assert method_definition["result"]["range"]["start"]["line"] == 4, method_definition
+
+    self_definition = server.request(request_message(24, "textDocument/definition", position_params(uri, 5, 21)))
+    assert self_definition["result"]["range"]["start"]["line"] == 1, self_definition
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
+def test_constructor_and_parameter_symbols():
+    server = ServerSession()
+
+    server.request(initialize_request())
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    uri = "file:///constructor.rynt"
+    server.send(did_open(uri, CONSTRUCTOR_SOURCE))
+
+    call_hover = server.request(request_message(30, "textDocument/hover", position_params(uri, 10, 22)))
+    call_text = call_hover["result"]["contents"]["value"]
+    assert "(constructor)" in call_text, call_text
+
+    call_definition = server.request(request_message(31, "textDocument/definition", position_params(uri, 10, 22)))
+    assert call_definition["result"]["range"]["start"]["line"] == 4, call_definition
+
+    declaration_hover = server.request(request_message(32, "textDocument/hover", position_params(uri, 4, 12)))
+    assert "(constructor)" in declaration_hover["result"]["contents"]["value"], declaration_hover
+
+    parameter_hover = server.request(request_message(33, "textDocument/hover", position_params(uri, 4, 26)))
+    parameter_text = parameter_hover["result"]["contents"]["value"]
+    assert "(parameter)" in parameter_text, parameter_text
+
+    parameter_definition = server.request(request_message(34, "textDocument/definition", position_params(uri, 5, 22)))
+    assert parameter_definition["result"]["range"]["start"]["line"] == 4, parameter_definition
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
+def test_editor_mode_suppresses_main_check_only():
+    server = ServerSession()
+
+    server.request(initialize_request())
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    clean_uri = "file:///no-main.rynt"
+    server.send(did_open(clean_uri, NO_MAIN_SOURCE))
+    clean = server.read()
+    assert not error_diagnostics(clean), error_diagnostics(clean)
+
+    error_uri = "file:///no-main-error.rynt"
+    server.send(did_open(error_uri, NO_MAIN_WITH_ERROR_SOURCE))
+    broken = server.read()
+    messages = [diagnostic["message"] for diagnostic in error_diagnostics(broken)]
+    assert any("RCE014" in message for message in messages), messages
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
+def test_document_symbols():
+    server = ServerSession()
+
+    initialization = server.request(initialize_request())
+    capabilities = initialization["result"]["capabilities"]
+    assert capabilities.get("documentSymbolProvider") is True, capabilities
+    assert "completionProvider" in capabilities, capabilities
+
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    uri = "file:///outline.rynt"
+    server.send(did_open(uri, STRUCT_SOURCE))
+
+    response = server.request(request_message(40, "textDocument/documentSymbol", {"textDocument": {"uri": uri}}))
+    symbols = {symbol["name"]: symbol for symbol in response["result"]}
+
+    assert "Rectangle" in symbols, symbols
+    assert symbols["Rectangle"]["kind"] == 23, symbols["Rectangle"]
+
+    children = {child["name"]: child for child in symbols["Rectangle"]["children"]}
+    assert set(children) == {"width", "height", "getArea"}, children
+    assert children["width"]["kind"] == 8, children["width"]
+    assert children["getArea"]["kind"] == 6, children["getArea"]
+
+    assert symbols["main"]["kind"] == 12, symbols["main"]
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
+def test_completion():
+    server = ServerSession()
+
+    server.request(initialize_request())
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    uri = "file:///completion.rynt"
+    server.send(did_open(uri, STRUCT_SOURCE))
+
+    member_response = server.request(request_message(41, "textDocument/completion", position_params(uri, 12, 9)))
+    member_labels = {item["label"] for item in member_response["result"]}
+    assert member_labels == {"width", "height", "getArea"}, member_labels
+
+    top_response = server.request(request_message(42, "textDocument/completion", position_params(uri, 8, 0)))
+    top_labels = {item["label"] for item in top_response["result"]}
+    assert {"Rectangle", "main", "public", "struct", "int", "string", "__builtin_print", "__builtin_scan", "Fn"} <= top_labels, top_labels
+    assert "rect" not in top_labels, top_labels
+    assert "print" not in top_labels, top_labels
+    for bogus in ("char", "double", "float", "private", "protected", "fn"):
+        assert bogus not in top_labels, (bogus, top_labels)
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
+def test_completion_respects_scope():
+    server = ServerSession()
+
+    server.request(initialize_request())
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    uri = "file:///scope.rynt"
+    server.send(did_open(uri, SYMBOL_SOURCE))
+
+    inside_main = server.request(request_message(43, "textDocument/completion", position_params(uri, 5, 5)))
+    inside_main_labels = {item["label"] for item in inside_main["result"]}
+    assert "value" in inside_main_labels, inside_main_labels
+
+    inside_greet = server.request(request_message(44, "textDocument/completion", position_params(uri, 1, 5)))
+    inside_greet_labels = {item["label"] for item in inside_greet["result"]}
+    assert "value" not in inside_greet_labels, inside_greet_labels
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
+def test_completion_on_incomplete_member_access():
+    server = ServerSession()
+
+    server.request(initialize_request())
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    uri = "file:///incomplete-member.rynt"
+    server.send(did_open(uri, INCOMPLETE_MEMBER_SOURCE))
+
+    response = server.request(request_message(45, "textDocument/completion", position_params(uri, 6, 6)))
+    labels = {item["label"] for item in response["result"]}
+    assert {"width", "height"} <= labels, labels
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
+def test_completion_on_partial_identifier():
+    server = ServerSession()
+
+    server.request(initialize_request())
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    uri = "file:///partial.rynt"
+    server.send(did_open(uri, PARTIAL_IDENTIFIER_SOURCE))
+
+    response = server.request(request_message(46, "textDocument/completion", position_params(uri, 5, 5)))
+    labels = {item["label"] for item in response["result"]}
+    assert {"ref", "return", "rect", "Rectangle"} <= labels, labels
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
+def test_completion_pointer_members():
+    server = ServerSession()
+
+    server.request(initialize_request())
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    uri = "file:///pointer.rynt"
+    server.send(did_open(uri, POINTER_SOURCE))
+
+    response = server.request(request_message(47, "textDocument/completion", position_params(uri, 2, 6)))
+    labels = {item["label"] for item in response["result"]}
+    assert {"load", "store"} <= labels, labels
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
+def test_completion_pointer_to_struct_members():
+    server = ServerSession()
+
+    server.request(initialize_request())
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    uri = "file:///pointer-struct.rynt"
+    server.send(did_open(uri, POINTER_STRUCT_SOURCE))
+
+    response = server.request(request_message(48, "textDocument/completion", position_params(uri, 5, 6)))
+    labels = {item["label"] for item in response["result"]}
+    assert {"width", "load", "store"} <= labels, labels
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
+def decode_semantic_tokens(response):
+    data = response["result"]["data"]
+    decoded = []
+    line = 0
+    character = 0
+    index = 0
+
+    while index < len(data):
+        delta_line, delta_character, length, token_type, _modifiers = data[index:index + 5]
+        index += 5
+
+        if delta_line == 0:
+            character += delta_character
+        else:
+            line += delta_line
+            character = delta_character
+
+        decoded.append({
+            "line": line,
+            "character": character,
+            "length": length,
+            "type": SEMANTIC_TOKEN_TYPES[token_type],
+        })
+
+    return decoded
+
+
+def test_semantic_tokens():
+    server = ServerSession()
+
+    initialization = server.request(initialize_request())
+    capabilities = initialization["result"]["capabilities"]
+    provider = capabilities.get("semanticTokensProvider")
+    assert provider is not None and provider.get("full") is True, capabilities
+    assert "keyword" in provider["legend"]["tokenTypes"], provider
+    assert provider["legend"]["tokenTypes"] == SEMANTIC_TOKEN_TYPES, provider
+
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    uri = "file:///semantic.rynt"
+    server.send(did_open(uri, SEMANTIC_SOURCE))
+
+    response = server.request(request_message(50, "textDocument/semanticTokens/full", {"textDocument": {"uri": uri}}))
+    decoded = decode_semantic_tokens(response)
+
+    first = decoded[0]
+    assert first["type"] == "comment" and first["line"] == 0 and first["character"] == 0, first
+    assert first["length"] == len("// header comment"), first
+
+    types = {token["type"] for token in decoded}
+    assert {"comment", "keyword", "struct", "type", "property", "function", "variable", "string", "number"} <= types, types
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
+def test_completion_inside_call_argument():
+    server = ServerSession()
+
+    server.request(initialize_request())
+    server.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+
+    closed_uri = "file:///call-closed.rynt"
+    server.send(did_open(closed_uri, CALL_ARGUMENT_MEMBER_SOURCE))
+    closed = server.request(request_message(49, "textDocument/completion", position_params(closed_uri, 6, 22)))
+    closed_labels = {item["label"] for item in closed["result"]}
+    assert {"width", "height"} <= closed_labels, closed_labels
+
+    open_uri = "file:///call-open.rynt"
+    server.send(did_open(open_uri, CALL_ARGUMENT_MEMBER_SOURCE_NO_CLOSE))
+    opened = server.request(request_message(50, "textDocument/completion", position_params(open_uri, 6, 22)))
+    opened_labels = {item["label"] for item in opened["result"]}
+    assert {"width", "height"} <= opened_labels, opened_labels
+
+    server.send({"jsonrpc": "2.0", "method": "exit"})
+    server.wait()
+
+
+TESTS = [
+    ("initialize/shutdown/exit", test_initialize_shutdown_exit),
+    ("request before initialize", test_request_before_initialize),
+    ("unknown method", test_unknown_method),
+    ("exit without shutdown", test_exit_without_shutdown),
+    ("document lifecycle", test_document_lifecycle),
+    ("change without open", test_change_without_open),
+    ("malformed didChange", test_malformed_did_change),
+    ("diagnostics for invalid source", test_diagnostics_for_invalid_source),
+    ("diagnostics clean for valid source", test_diagnostics_clean_for_valid_source),
+    ("diagnostics update on change", test_diagnostics_update_on_change),
+    ("diagnostics cleared on close", test_diagnostics_cleared_on_close),
+    ("hover and definition", test_hover_and_definition),
+    ("struct member hover and definition", test_struct_member_hover_and_definition),
+    ("constructor and parameter symbols", test_constructor_and_parameter_symbols),
+    ("editor mode suppresses main check only", test_editor_mode_suppresses_main_check_only),
+    ("document symbols", test_document_symbols),
+    ("completion", test_completion),
+    ("completion respects scope", test_completion_respects_scope),
+    ("completion on incomplete member access", test_completion_on_incomplete_member_access),
+    ("completion on partial identifier", test_completion_on_partial_identifier),
+    ("completion pointer members", test_completion_pointer_members),
+    ("completion pointer to struct members", test_completion_pointer_to_struct_members),
+    ("completion inside call argument", test_completion_inside_call_argument),
+    ("semantic tokens", test_semantic_tokens),
+]
+
+def main():
+    if not EXE_PATH.exists():
+        print(f"Server not found: {EXE_PATH}")
+        print("Build the 'RyntraLSP' target first.")
+        sys.exit(1)
+
+    passed = 0
+    for name, test in TESTS:
+        try:
+            test()
+            print(f"Pass: {name}")
+            passed += 1
+        except Exception as error:
+            print(f"Fail: {name} -> {error}")
+
+    print("\n---- Summary ----")
+    print(f"Passed: {passed} / {len(TESTS)}")
+
+    if passed != len(TESTS):
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()

@@ -3,6 +3,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace Ryntra::Compiler::Semantic {
@@ -14,7 +15,8 @@ namespace Ryntra::Compiler::Semantic {
         UNKNOWN,
         ARRAY,
         REFERENCE,
-        POINTER
+        POINTER,
+        STRUCT
     };
 
     class Type {
@@ -161,6 +163,56 @@ namespace Ryntra::Compiler::Semantic {
         std::vector<std::shared_ptr<Type>> paramTypes;
     };
 
+    // A named aggregate type introduced by a `struct` declaration. Fields are
+    // stored as name -> type so member access can be resolved during analysis.
+    class StructType : public Type {
+    public:
+        explicit StructType(std::string name) : name(std::move(name)) {}
+
+        TypeKind getKind() const override { return TypeKind::STRUCT; }
+
+        std::string toString() const override { return name; }
+
+        bool equals(const Type &other) const override {
+            if (other.getKind() != TypeKind::STRUCT)
+                return false;
+            return name == static_cast<const StructType &>(other).name;
+        }
+
+        const std::string &getName() const { return name; }
+
+        void addField(const std::string &fieldName, std::shared_ptr<Type> fieldType) {
+            if (fields.find(fieldName) == fields.end()) {
+                orderedFields.emplace_back(fieldName, fieldType);
+            } else {
+                for (auto &entry : orderedFields) {
+                    if (entry.first == fieldName) {
+                        entry.second = fieldType;
+                        break;
+                    }
+                }
+            }
+            fields[fieldName] = std::move(fieldType);
+        }
+
+        std::shared_ptr<Type> getField(const std::string &fieldName) const {
+            auto it = fields.find(fieldName);
+            return it == fields.end() ? nullptr : it->second;
+        }
+
+        const std::unordered_map<std::string, std::shared_ptr<Type>> &getFields() const { return fields; }
+
+        // Source-declaration order of fields (deterministic layout for codegen).
+        const std::vector<std::pair<std::string, std::shared_ptr<Type>>> &getOrderedFields() const {
+            return orderedFields;
+        }
+
+    private:
+        std::string name;
+        std::unordered_map<std::string, std::shared_ptr<Type>> fields;
+        std::vector<std::pair<std::string, std::shared_ptr<Type>>> orderedFields;
+    };
+
     // Helper to create types
     class TypeFactory {
     public:
@@ -181,6 +233,9 @@ namespace Ryntra::Compiler::Semantic {
         }
         static std::shared_ptr<PointerType> getPointer(std::shared_ptr<Type> elementType) {
             return std::make_shared<PointerType>(std::move(elementType));
+        }
+        static std::shared_ptr<StructType> getStruct(const std::string &name) {
+            return std::make_shared<StructType>(name);
         }
     };
 

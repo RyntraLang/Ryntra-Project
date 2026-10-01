@@ -19,7 +19,7 @@ namespace Ryntra::Compiler::Semantic {
         return name.find_first_of("<>()[]") == std::string::npos;
     }
 
-    void SemanticAnalyzer::checkKnownTypeNames(const std::string &rawName, const SourceLocation &loc) {
+    void SemanticAnalyzer::checkKnownTypeNames(const std::string &rawName, const SourceRange &range) {
         auto name = trimWhitespace(rawName);
         if (name.empty())
             return;
@@ -30,7 +30,7 @@ namespace Ryntra::Compiler::Semantic {
             if (!isKnownType) {
                 ErrorHandler::getInstance().makeError(
                     "[RCE074]: '" + name + "' is not a known type.",
-                    loc);
+                    range);
             }
             return;
         }
@@ -45,7 +45,7 @@ namespace Ryntra::Compiler::Semantic {
         if (!inner.empty()) {
             auto parenPos = inner.find('(');
             if (parenPos != std::string::npos) {
-                checkKnownTypeNames(inner.substr(0, parenPos), loc);
+                checkKnownTypeNames(inner.substr(0, parenPos), range);
                 auto paramSection = inner.substr(parenPos + 1);
                 if (!paramSection.empty() && paramSection.back() == ')')
                     paramSection.pop_back();
@@ -56,7 +56,7 @@ namespace Ryntra::Compiler::Semantic {
                         commaPos = paramSection.size();
                     auto paramName = trimWhitespace(paramSection.substr(start, commaPos - start));
                     if (!paramName.empty())
-                        checkKnownTypeNames(paramName, loc);
+                        checkKnownTypeNames(paramName, range);
                     if (commaPos == paramSection.size())
                         break;
                     start = commaPos + 1;
@@ -68,12 +68,23 @@ namespace Ryntra::Compiler::Semantic {
         // Generic wrappers: "ptr<...>" / "ref<...>"
         if ((name.rfind("ptr<", 0) == 0 || name.rfind("ref<", 0) == 0) &&
             name.size() > 5 && name.back() == '>') {
-            checkKnownTypeNames(name.substr(4, name.size() - 5), loc);
+            checkKnownTypeNames(name.substr(4, name.size() - 5), range);
             return;
         }
     }
 
     TypePtr SemanticAnalyzer::makeSTType(const std::string &name) {
+        // Named aggregate (struct) types keep their full definition, so nested
+        // spellings such as `ptr<Rectangle>` resolve to the real struct type
+        // instead of falling back to a primitive.
+        if (auto typeSym = std::dynamic_pointer_cast<TypeSymbol>(symbolTable.resolve(name))) {
+            return typeSym->getType();
+        }
+        auto structIt = structTypes.find(name);
+        if (structIt != structTypes.end()) {
+            return structIt->second;
+        }
+
         if (name == "void")
             return std::make_shared<STType::VoidType>();
         if (name == "string")
@@ -128,7 +139,7 @@ namespace Ryntra::Compiler::Semantic {
     }
 
     std::string SemanticAnalyzer::getPtrVarName(const std::shared_ptr<TypedExpressionNode> &expr,
-                                                  const SourceLocation &loc) {
+                                                  const SourceRange &range) {
         if (auto varNode = std::dynamic_pointer_cast<TypedVariableNode>(expr)) {
             return varNode->getName();
         }
@@ -140,7 +151,7 @@ namespace Ryntra::Compiler::Semantic {
         }
         ErrorHandler::getInstance().makeError(
             "[RCE059]: Expected a pointer variable or pointer expression.",
-            loc);
+            range);
         return "";
     }
 
@@ -153,7 +164,7 @@ namespace Ryntra::Compiler::Semantic {
     }
 
     std::shared_ptr<FunctionSymbol> SemanticAnalyzer::pickFunctionForAddress(const std::shared_ptr<OverloadSet> &ovSet,
-                                                                             const SourceLocation &loc) {
+                                                                             const SourceRange &range) {
         const auto &functions = ovSet->getFunctions();
 
         if (expectedReturnType && expectedReturnType->getKind() == TypeKind::POINTER) {
@@ -169,7 +180,7 @@ namespace Ryntra::Compiler::Semantic {
                 ErrorHandler::getInstance().makeError(
                     "[RCE069]: No overload of function '" + ovSet->getName() +
                         "' matches the expected function type '" + expectedFn.toString() + "'.",
-                    loc);
+                    range);
                 return nullptr;
             }
         }
@@ -181,7 +192,7 @@ namespace Ryntra::Compiler::Semantic {
         ErrorHandler::getInstance().makeError(
             "[RCE068]: Cannot take the address of overloaded function '" + ovSet->getName() +
                 "' without a matching expected function type.",
-            loc);
+            range);
         return nullptr;
     }
 
@@ -218,6 +229,16 @@ namespace Ryntra::Compiler::Semantic {
                 paramTypes.push_back(toTypedType(paramSTType));
             }
             return TypeFactory::getFunction(toTypedType(fnSTType.getReturnType()), paramTypes);
+        }
+        case STType::TypeKind::Struct: {
+            auto &structSTType = static_cast<const STType::StructType &>(*stType);
+            auto structType = TypeFactory::getStruct(structSTType.getName());
+            for (const auto &fieldName : structSTType.getFieldOrder()) {
+                if (auto fieldType = structSTType.getField(fieldName)) {
+                    structType->addField(fieldName, toTypedType(fieldType));
+                }
+            }
+            return structType;
         }
         default:
             return TypeFactory::getPrimitive("unknown");

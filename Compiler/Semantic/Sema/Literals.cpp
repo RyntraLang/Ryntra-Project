@@ -6,14 +6,14 @@ namespace Ryntra::Compiler::Semantic {
         auto stType = std::make_shared<STType::StringType>();
         auto typedNode = std::make_shared<TypedStringLiteralNode>(
             node.getValue(), toTypedType(stType));
-        typedNode->setLocation(node.getLocation());
+        typedNode->setRange(node.getRange());
         lastNode = typedNode;
     }
 
     void SemanticAnalyzer::visit(NullLiteralNode &node) {
         auto typedNode = std::make_shared<TypedNullLiteralNode>(
             TypeFactory::getPrimitive("null"));
-        typedNode->setLocation(node.getLocation());
+        typedNode->setRange(node.getRange());
         lastNode = typedNode;
     }
 
@@ -21,7 +21,7 @@ namespace Ryntra::Compiler::Semantic {
         auto stType = std::make_shared<STType::BoolType>();
         auto typedNode = std::make_shared<TypedBoolLiteralNode>(
             node.getValue(), toTypedType(stType));
-        typedNode->setLocation(node.getLocation());
+        typedNode->setRange(node.getRange());
         lastNode = typedNode;
     }
 
@@ -29,7 +29,23 @@ namespace Ryntra::Compiler::Semantic {
         auto stType = std::make_shared<STType::Int32Type>();
         auto typedNode = std::make_shared<TypedIntegerLiteralNode>(
             node.getValue(), toTypedType(stType));
-        typedNode->setLocation(node.getLocation());
+        typedNode->setRange(node.getRange());
+        lastNode = typedNode;
+    }
+
+    void SemanticAnalyzer::visit(AlignofNode &node) {
+        int alignment = 1;
+        if (auto typeSpecifier = node.getTypeSpecifier()) {
+            typeSpecifier->accept(*this);
+            if (lastType) {
+                alignment = STType::alignmentOf(*lastType);
+            }
+        }
+
+        auto stType = std::make_shared<STType::Int32Type>();
+        auto typedNode = std::make_shared<TypedIntegerLiteralNode>(
+            alignment, toTypedType(stType));
+        typedNode->setRange(node.getRange());
         lastNode = typedNode;
     }
 
@@ -37,7 +53,7 @@ namespace Ryntra::Compiler::Semantic {
         auto stType = std::make_shared<STType::Int64Type>();
         auto typedNode = std::make_shared<TypedLongLiteralNode>(
             node.getValue(), toTypedType(stType));
-        typedNode->setLocation(node.getLocation());
+        typedNode->setRange(node.getRange());
         lastNode = typedNode;
     }
 } // namespace Ryntra::Compiler::Semantic

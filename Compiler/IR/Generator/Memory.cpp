@@ -30,8 +30,11 @@ namespace Ryntra::IR {
             builder_.generateUniqueName(""), it->second, refIRType);
 
         auto elemIRType = toIRType(node.getType());
-        lastValue_ = builder_.createRefLoad(
+        auto loadInst = builder_.createRefLoad(
             builder_.generateUniqueName(""), refVal, elemIRType);
+        if (loadInst)
+            loadInst->setSourceRange(node.getRange());
+        lastValue_ = loadInst;
     }
 
     void IRGenerator::visit(Compiler::Semantic::TypedRefAssignNode &node) {
@@ -70,9 +73,9 @@ namespace Ryntra::IR {
             return;
         }
 
-        auto ptrIRType = toIRType(node.getType());
-        lastValue_ = builder_.createPtrCreate(
-            builder_.generateUniqueName(""), ptrIRType, it->second);
+        // `alloca T` already yields ptr<T>, so no explicit pointer construction is
+        // needed to form `ptr(var)`.
+        lastValue_ = it->second;
     }
 
     void IRGenerator::visit(Compiler::Semantic::TypedPtrLoadNode &node) {
@@ -88,8 +91,11 @@ namespace Ryntra::IR {
             builder_.generateUniqueName(""), it->second, ptrIRType);
 
         auto elemIRType = toIRType(node.getType());
-        lastValue_ = builder_.createPtrLoad(
+        auto loadInst = builder_.createLoad(
             builder_.generateUniqueName(""), ptrVal, elemIRType);
+        if (loadInst)
+            loadInst->setSourceRange(node.getRange());
+        lastValue_ = loadInst;
     }
 
     void IRGenerator::visit(Compiler::Semantic::TypedPtrStoreNode &node) {
@@ -116,7 +122,7 @@ namespace Ryntra::IR {
                 builder_.generateUniqueName(""), imm->getType(), imm);
         }
 
-        builder_.createPtrStore(ptrVal, storeVal);
+        builder_.createStore(storeVal, ptrVal);
         lastValue_ = storeVal;
     }
 

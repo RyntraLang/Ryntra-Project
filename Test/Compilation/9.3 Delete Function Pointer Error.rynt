@@ -1,0 +1,10 @@
+public int add(int a) {
+    return a;
+}
+
+public void main() {
+    unsafe {
+        ptr<Fn<int(int)>> p = ptr(add);
+        delete p;
+    }
+}

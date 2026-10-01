@@ -204,6 +204,81 @@ namespace Ryntra::Compiler::Semantic {
         std::shared_ptr<TypedExpressionNode> initializer;
     };
 
+    // Value construction: `Rectangle(...)` allocates a struct value in place and
+    // runs the matching constructor on it. The expression's type is the struct.
+    class TypedConstructorCallNode : public TypedExpressionNode {
+    public:
+        TypedConstructorCallNode(std::string structName,
+                                 std::vector<std::shared_ptr<TypedExpressionNode>> arguments,
+                                 std::vector<std::shared_ptr<Type>> parameterTypes,
+                                 bool hasConstructor,
+                                 std::shared_ptr<Type> type)
+            : TypedExpressionNode(std::move(type)), structName(std::move(structName)),
+              arguments(std::move(arguments)), parameterTypes(std::move(parameterTypes)),
+              constructorResolved(hasConstructor) {}
+
+        const std::string &getStructName() const { return structName; }
+        const std::vector<std::shared_ptr<TypedExpressionNode>> &getArguments() const { return arguments; }
+        // Resolved overload's parameter types (used for constructor mangling).
+        const std::vector<std::shared_ptr<Type>> &getParameterTypes() const { return parameterTypes; }
+        bool hasConstructor() const { return constructorResolved; }
+
+        void accept(ITypedVisitor &visitor) override { visitor.visit(*this); }
+        std::string toString() const override { return "TypedConstructorCall(" + structName + "): " + type->toString(); }
+        void dump(int indent = 0) const override {
+            printIndent(indent);
+            std::cout << toString() << std::endl;
+            printIndent(indent + 1);
+            std::cout << "Arguments:" << std::endl;
+            for (const auto &arg : arguments) {
+                arg->dump(indent + 2);
+            }
+        }
+
+    private:
+        std::string structName;
+        std::vector<std::shared_ptr<TypedExpressionNode>> arguments;
+        std::vector<std::shared_ptr<Type>> parameterTypes;
+        bool constructorResolved;
+    };
+
+    // Dynamic construction: `new Rectangle(...)` allocates a struct on the heap,
+    // runs the matching constructor on it, and yields a `ptr<Rectangle>`.
+    class TypedNewObjectNode : public TypedExpressionNode {
+    public:
+        TypedNewObjectNode(std::string structName,
+                           std::vector<std::shared_ptr<TypedExpressionNode>> arguments,
+                           std::vector<std::shared_ptr<Type>> parameterTypes,
+                           bool hasConstructor,
+                           std::shared_ptr<Type> type)
+            : TypedExpressionNode(std::move(type)), structName(std::move(structName)),
+              arguments(std::move(arguments)), parameterTypes(std::move(parameterTypes)),
+              constructorResolved(hasConstructor) {}
+
+        const std::string &getStructName() const { return structName; }
+        const std::vector<std::shared_ptr<TypedExpressionNode>> &getArguments() const { return arguments; }
+        const std::vector<std::shared_ptr<Type>> &getParameterTypes() const { return parameterTypes; }
+        bool hasConstructor() const { return constructorResolved; }
+
+        void accept(ITypedVisitor &visitor) override { visitor.visit(*this); }
+        std::string toString() const override { return "TypedNewObject(" + structName + "): " + type->toString(); }
+        void dump(int indent = 0) const override {
+            printIndent(indent);
+            std::cout << toString() << std::endl;
+            printIndent(indent + 1);
+            std::cout << "Arguments:" << std::endl;
+            for (const auto &arg : arguments) {
+                arg->dump(indent + 2);
+            }
+        }
+
+    private:
+        std::string structName;
+        std::vector<std::shared_ptr<TypedExpressionNode>> arguments;
+        std::vector<std::shared_ptr<Type>> parameterTypes;
+        bool constructorResolved;
+    };
+
     class TypedDeleteNode : public TypedStatementNode {
     public:
         explicit TypedDeleteNode(std::shared_ptr<TypedExpressionNode> ptrExpr)
@@ -576,21 +651,15 @@ namespace Ryntra::Compiler::Semantic {
         std::shared_ptr<Type> type;
     };
 
-    class TypedFunctionDefinitionNode : public ITypedASTNode {
+    class TypedParameterListNode : public ITypedASTNode {
     public:
-        TypedFunctionDefinitionNode(std::string name,
-                                     std::shared_ptr<Type> returnType,
-                                     std::vector<std::shared_ptr<TypedParameterNode>> parameters,
-                                     std::shared_ptr<TypedBlockNode> body)
-            : name(std::move(name)), returnType(std::move(returnType)), parameters(std::move(parameters)), body(std::move(body)) {}
+        explicit TypedParameterListNode(std::vector<std::shared_ptr<TypedParameterNode>> parameters)
+            : parameters(std::move(parameters)) {}
 
-        const std::string &getName() const { return name; }
-        std::shared_ptr<Type> getReturnType() const { return returnType; }
         const std::vector<std::shared_ptr<TypedParameterNode>> &getParameters() const { return parameters; }
-        std::shared_ptr<TypedBlockNode> getBody() const { return body; }
 
         void accept(ITypedVisitor &visitor) override { visitor.visit(*this); }
-        std::string toString() const override { return "TypedFunctionDefinition(" + name + "): " + returnType->toString(); }
+        std::string toString() const override { return "TypedParameterList"; }
         void dump(int indent = 0) const override {
             printIndent(indent);
             std::cout << toString() << std::endl;
@@ -598,22 +667,253 @@ namespace Ryntra::Compiler::Semantic {
                 printIndent(indent + 1);
                 std::cout << param->toString() << std::endl;
             }
+        }
+
+    private:
+        std::vector<std::shared_ptr<TypedParameterNode>> parameters;
+    };
+
+    class TypedFunctionDefinitionNode : public ITypedASTNode {
+    public:
+        TypedFunctionDefinitionNode(std::string name,
+                                     std::shared_ptr<Type> returnType,
+                                     std::shared_ptr<TypedParameterListNode> parameterList,
+                                     std::shared_ptr<TypedBlockNode> body)
+            : name(std::move(name)), returnType(std::move(returnType)), parameterList(std::move(parameterList)), body(std::move(body)) {}
+
+        const std::string &getName() const { return name; }
+        std::shared_ptr<Type> getReturnType() const { return returnType; }
+        std::shared_ptr<TypedParameterListNode> getParameterList() const { return parameterList; }
+        std::shared_ptr<TypedBlockNode> getBody() const { return body; }
+
+        void accept(ITypedVisitor &visitor) override { visitor.visit(*this); }
+        std::string toString() const override { return "TypedFunctionDefinition(" + name + "): " + returnType->toString(); }
+        void dump(int indent = 0) const override {
+            printIndent(indent);
+            std::cout << toString() << std::endl;
+            if (parameterList) {
+                parameterList->dump(indent + 1);
+            }
             body->dump(indent + 1);
         }
 
     private:
         std::string name;
         std::shared_ptr<Type> returnType;
-        std::vector<std::shared_ptr<TypedParameterNode>> parameters;
+        std::shared_ptr<TypedParameterListNode> parameterList;
         std::shared_ptr<TypedBlockNode> body;
+    };
+
+    class TypedFieldDeclarationNode : public ITypedASTNode {
+    public:
+        TypedFieldDeclarationNode(std::string name, std::shared_ptr<Type> type,
+                                  std::shared_ptr<TypedExpressionNode> initializer = nullptr)
+            : name(std::move(name)), type(std::move(type)), initializer(std::move(initializer)) {}
+
+        const std::string &getName() const { return name; }
+        std::shared_ptr<Type> getType() const { return type; }
+        std::shared_ptr<TypedExpressionNode> getInitializer() const { return initializer; }
+
+        void accept(ITypedVisitor &visitor) override { visitor.visit(*this); }
+        std::string toString() const override { return "TypedFieldDeclaration(" + name + "): " + type->toString(); }
+        void dump(int indent = 0) const override {
+            printIndent(indent);
+            std::cout << toString() << std::endl;
+            if (initializer) {
+                initializer->dump(indent + 1);
+            }
+        }
+
+    private:
+        std::string name;
+        std::shared_ptr<Type> type;
+        std::shared_ptr<TypedExpressionNode> initializer;
+    };
+
+    class TypedConstructorDeclarationNode : public ITypedASTNode {
+    public:
+        TypedConstructorDeclarationNode(std::string name,
+                                        std::shared_ptr<TypedParameterListNode> parameterList,
+                                        std::shared_ptr<TypedBlockNode> body)
+            : name(std::move(name)), parameterList(std::move(parameterList)), body(std::move(body)) {}
+
+        const std::string &getName() const { return name; }
+        std::shared_ptr<TypedParameterListNode> getParameterList() const { return parameterList; }
+        std::shared_ptr<TypedBlockNode> getBody() const { return body; }
+
+        void accept(ITypedVisitor &visitor) override { visitor.visit(*this); }
+        std::string toString() const override { return "TypedConstructorDeclaration(" + name + ")"; }
+        void dump(int indent = 0) const override {
+            printIndent(indent);
+            std::cout << toString() << std::endl;
+            if (parameterList) {
+                parameterList->dump(indent + 1);
+            }
+            if (body) {
+                body->dump(indent + 1);
+            }
+        }
+
+    private:
+        std::string name;
+        std::shared_ptr<TypedParameterListNode> parameterList;
+        std::shared_ptr<TypedBlockNode> body;
+    };
+
+    class TypedStructDeclarationNode : public ITypedASTNode {
+    public:
+        TypedStructDeclarationNode(std::string name,
+                                   std::vector<std::shared_ptr<TypedFieldDeclarationNode>> fields,
+                                   std::vector<std::shared_ptr<TypedConstructorDeclarationNode>> constructors,
+                                   std::vector<std::shared_ptr<TypedFunctionDefinitionNode>> methods,
+                                   int alignment = 0)
+            : name(std::move(name)), fields(std::move(fields)),
+              constructors(std::move(constructors)), methods(std::move(methods)),
+              alignment(alignment) {}
+
+        const std::string &getName() const { return name; }
+        const std::vector<std::shared_ptr<TypedFieldDeclarationNode>> &getFields() const { return fields; }
+        const std::vector<std::shared_ptr<TypedConstructorDeclarationNode>> &getConstructors() const { return constructors; }
+        const std::vector<std::shared_ptr<TypedFunctionDefinitionNode>> &getMethods() const { return methods; }
+        // Explicit `[AlignAs(N)]` alignment (0 = natural alignment).
+        int getAlignment() const { return alignment; }
+
+        void accept(ITypedVisitor &visitor) override { visitor.visit(*this); }
+        std::string toString() const override { return "TypedStructDeclaration(" + name + ")"; }
+        void dump(int indent = 0) const override {
+            printIndent(indent);
+            std::cout << toString() << std::endl;
+            for (const auto &field : fields) {
+                field->dump(indent + 1);
+            }
+            for (const auto &ctor : constructors) {
+                ctor->dump(indent + 1);
+            }
+            for (const auto &method : methods) {
+                method->dump(indent + 1);
+            }
+        }
+
+    private:
+        std::string name;
+        std::vector<std::shared_ptr<TypedFieldDeclarationNode>> fields;
+        std::vector<std::shared_ptr<TypedConstructorDeclarationNode>> constructors;
+        std::vector<std::shared_ptr<TypedFunctionDefinitionNode>> methods;
+        int alignment = 0;
+    };
+
+    class TypedSelfExpressionNode : public TypedExpressionNode {
+    public:
+        explicit TypedSelfExpressionNode(std::shared_ptr<Type> type)
+            : TypedExpressionNode(std::move(type)) {}
+
+        void accept(ITypedVisitor &visitor) override { visitor.visit(*this); }
+        std::string toString() const override { return "TypedSelf: " + type->toString(); }
+        void dump(int indent = 0) const override {
+            printIndent(indent);
+            std::cout << toString() << std::endl;
+        }
+    };
+
+    class TypedMemberAccessNode : public TypedExpressionNode {
+    public:
+        TypedMemberAccessNode(std::shared_ptr<TypedExpressionNode> object, std::string memberName, std::shared_ptr<Type> type)
+            : TypedExpressionNode(std::move(type)), object(std::move(object)), memberName(std::move(memberName)) {}
+
+        std::shared_ptr<TypedExpressionNode> getObject() const { return object; }
+        const std::string &getMemberName() const { return memberName; }
+
+        void accept(ITypedVisitor &visitor) override { visitor.visit(*this); }
+        std::string toString() const override { return "TypedMemberAccess(." + memberName + "): " + type->toString(); }
+        void dump(int indent = 0) const override {
+            printIndent(indent);
+            std::cout << toString() << std::endl;
+            printIndent(indent + 1);
+            std::cout << "Object:" << std::endl;
+            object->dump(indent + 2);
+        }
+
+    private:
+        std::shared_ptr<TypedExpressionNode> object;
+        std::string memberName;
+    };
+
+    class TypedMemberAssignmentNode : public TypedExpressionNode {
+    public:
+        TypedMemberAssignmentNode(std::shared_ptr<TypedExpressionNode> object, std::string memberName,
+                                  std::shared_ptr<TypedExpressionNode> value, std::shared_ptr<Type> type)
+            : TypedExpressionNode(std::move(type)), object(std::move(object)),
+              memberName(std::move(memberName)), value(std::move(value)) {}
+
+        std::shared_ptr<TypedExpressionNode> getObject() const { return object; }
+        const std::string &getMemberName() const { return memberName; }
+        std::shared_ptr<TypedExpressionNode> getValue() const { return value; }
+
+        void accept(ITypedVisitor &visitor) override { visitor.visit(*this); }
+        std::string toString() const override { return "TypedMemberAssign(." + memberName + "): " + type->toString(); }
+        void dump(int indent = 0) const override {
+            printIndent(indent);
+            std::cout << toString() << std::endl;
+            printIndent(indent + 1);
+            std::cout << "Object:" << std::endl;
+            object->dump(indent + 2);
+            printIndent(indent + 1);
+            std::cout << "Value:" << std::endl;
+            value->dump(indent + 2);
+        }
+
+    private:
+        std::shared_ptr<TypedExpressionNode> object;
+        std::string memberName;
+        std::shared_ptr<TypedExpressionNode> value;
+    };
+
+    class TypedMethodCallNode : public TypedExpressionNode {
+    public:
+        TypedMethodCallNode(std::shared_ptr<TypedExpressionNode> object, std::string methodName,
+                            std::vector<std::shared_ptr<TypedExpressionNode>> arguments,
+                            std::vector<std::shared_ptr<Type>> parameterTypes,
+                            std::shared_ptr<Type> type)
+            : TypedExpressionNode(std::move(type)), object(std::move(object)),
+              methodName(std::move(methodName)), arguments(std::move(arguments)),
+              parameterTypes(std::move(parameterTypes)) {}
+
+        std::shared_ptr<TypedExpressionNode> getObject() const { return object; }
+        const std::string &getMethodName() const { return methodName; }
+        const std::vector<std::shared_ptr<TypedExpressionNode>> &getArguments() const { return arguments; }
+        // Resolved overload's parameter types (used for method mangling in codegen).
+        const std::vector<std::shared_ptr<Type>> &getParameterTypes() const { return parameterTypes; }
+
+        void accept(ITypedVisitor &visitor) override { visitor.visit(*this); }
+        std::string toString() const override { return "TypedMethodCall(." + methodName + "): " + type->toString(); }
+        void dump(int indent = 0) const override {
+            printIndent(indent);
+            std::cout << toString() << std::endl;
+            printIndent(indent + 1);
+            std::cout << "Object:" << std::endl;
+            object->dump(indent + 2);
+            printIndent(indent + 1);
+            std::cout << "Arguments:" << std::endl;
+            for (const auto &arg : arguments) {
+                arg->dump(indent + 2);
+            }
+        }
+
+    private:
+        std::shared_ptr<TypedExpressionNode> object;
+        std::string methodName;
+        std::vector<std::shared_ptr<TypedExpressionNode>> arguments;
+        std::vector<std::shared_ptr<Type>> parameterTypes;
     };
 
     class TypedProgramNode : public ITypedASTNode {
     public:
-        explicit TypedProgramNode(std::vector<std::shared_ptr<TypedFunctionDefinitionNode>> funcs)
-            : functions(std::move(funcs)) {}
+        TypedProgramNode(std::vector<std::shared_ptr<TypedFunctionDefinitionNode>> funcs,
+                         std::vector<std::shared_ptr<TypedStructDeclarationNode>> structs)
+            : functions(std::move(funcs)), structs(std::move(structs)) {}
 
         const std::vector<std::shared_ptr<TypedFunctionDefinitionNode>> &getFunctions() const { return functions; }
+        const std::vector<std::shared_ptr<TypedStructDeclarationNode>> &getStructs() const { return structs; }
         void accept(ITypedVisitor &visitor) override { visitor.visit(*this); }
         std::string toString() const override { return "TypedProgram"; }
         void dump(int indent = 0) const override {
@@ -622,10 +922,14 @@ namespace Ryntra::Compiler::Semantic {
             for (const auto &func : functions) {
                 func->dump(indent + 1);
             }
+            for (const auto &strct : structs) {
+                strct->dump(indent + 1);
+            }
         }
 
     private:
         std::vector<std::shared_ptr<TypedFunctionDefinitionNode>> functions;
+        std::vector<std::shared_ptr<TypedStructDeclarationNode>> structs;
     };
 
 } // namespace Ryntra::Compiler::Semantic

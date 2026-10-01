@@ -8,7 +8,10 @@ namespace Ryntra::Compiler::Semantic {
 
         auto sym = symbolTable.resolve(funcName);
 
-        const auto &args = node.getArguments();
+        std::vector<std::shared_ptr<ExpressionNode>> args;
+        if (node.getArgumentList()) {
+            args = node.getArgumentList()->getArguments();
+        }
         std::vector<std::shared_ptr<TypedExpressionNode>> typedArgs;
         for (size_t i = 0; i < args.size(); ++i) {
             args[i]->accept(*this);
@@ -32,7 +35,7 @@ namespace Ryntra::Compiler::Semantic {
                             "[RCE070]: Function pointer '" + funcName + "' expects " +
                                 std::to_string(paramTypes.size()) + " arguments, but got " +
                                 std::to_string(args.size()) + ".",
-                            node.getLocation());
+                            node.getRange());
                     }
 
                     for (size_t i = 0; i < typedArgs.size(); ++i) {
@@ -45,18 +48,57 @@ namespace Ryntra::Compiler::Semantic {
                                 "[RCE071]: Argument " + std::to_string(i + 1) +
                                     " expects type '" + paramTypes[i]->toString() +
                                     "', but got '" + actualType->toString() + "'.",
-                                args[i]->getLocation());
+                                args[i]->getRange());
                         }
                     }
 
                     auto calleeExpr = std::make_shared<TypedVariableNode>(funcName, toTypedType(varSTType));
-                    calleeExpr->setLocation(funcNameNode->getLocation());
+                    calleeExpr->setRange(funcNameNode->getRange());
 
                     auto typedCall = std::make_shared<TypedFunctionPointerCallNode>(calleeExpr, typedArgs, resultType);
-                    typedCall->setLocation(node.getLocation());
+                    typedCall->setRange(node.getRange());
                     lastNode = typedCall;
                     return;
                 }
+            }
+        }
+
+        // Case: value construction, e.g. `Rectangle(100, 200)`. A struct type name
+        // used in call position denotes a constructor call producing a struct value.
+        if (auto typeSym = std::dynamic_pointer_cast<TypeSymbol>(sym)) {
+            if (auto structSTType = std::dynamic_pointer_cast<STType::StructType>(typeSym->getType())) {
+                std::vector<TypePtr> ctorParamSTTypes;
+                bool anyDeclared = false;
+                auto ctor = resolveConstructor(structSTType, typedArgs, ctorParamSTTypes,
+                                               anyDeclared, node.getRange());
+
+                if (!ctor && anyDeclared) {
+                    // A constructor was declared but no overload matched; the
+                    // concrete error has already been reported.
+                    lastNode = nullptr;
+                    return;
+                }
+                if (!ctor && !anyDeclared && !args.empty()) {
+                    ErrorHandler::getInstance().makeError(
+                        "[RCE106]: Struct '" + funcName + "' has no constructor accepting " +
+                            std::to_string(args.size()) + " argument(s).",
+                        node.getRange());
+                    lastNode = nullptr;
+                    return;
+                }
+
+                std::vector<std::shared_ptr<Type>> ctorParamTypes;
+                for (const auto &pt : ctorParamSTTypes) {
+                    ctorParamTypes.push_back(toTypedType(pt));
+                }
+
+                auto structType = toTypedType(structSTType);
+                auto typedCtor = std::make_shared<TypedConstructorCallNode>(
+                    funcName, std::move(typedArgs), std::move(ctorParamTypes),
+                    ctor != nullptr, structType);
+                typedCtor->setRange(node.getRange());
+                lastNode = typedCtor;
+                return;
             }
         }
 
@@ -66,7 +108,7 @@ namespace Ryntra::Compiler::Semantic {
         if (!sym) {
             ErrorHandler::getInstance().makeError(
                 "[RCE008]: Function '" + funcName + "' is not defined.",
-                node.getLocation());
+                node.getRange());
             stReturnType = makeSTType("unknown");
         } else if (auto overloadSet = std::dynamic_pointer_cast<OverloadSet>(sym)) {
             bool found = false;
@@ -121,7 +163,7 @@ namespace Ryntra::Compiler::Semantic {
                     "[RCE009]: No matching overload for function '" + funcName +
                         "'. Expected " + expectedTypes + " argument, but got '" +
                         (typedArgs.empty() || !typedArgs[0] ? "unknown" : typedArgs[0]->getType()->toString()) + "'.",
-                    node.getLocation());
+                    node.getRange());
                 stReturnType = makeSTType("unknown");
                 if (!overloadSet->getFunctions().empty()) {
                     expectedParamTypes = overloadSet->getFunctions()[0]->getParamTypes();
@@ -133,7 +175,7 @@ namespace Ryntra::Compiler::Semantic {
         } else {
             ErrorHandler::getInstance().makeError(
                 "[RCE010]: '" + funcName + "' is not a function.",
-                node.getLocation());
+                node.getRange());
             stReturnType = makeSTType("unknown");
         }
 
@@ -145,7 +187,7 @@ namespace Ryntra::Compiler::Semantic {
                 "[RCE011]: Function '" + funcName + "' expects " +
                     std::to_string(expectedParamTypes.size()) + " arguments, but got " +
                     std::to_string(args.size()) + ".",
-                node.getLocation());
+                node.getRange());
         }
 
         for (size_t i = 0; i < typedArgs.size(); ++i) {
@@ -162,7 +204,7 @@ namespace Ryntra::Compiler::Semantic {
                         "[RCE012]: Argument " + std::to_string(i + 1) +
                             " expects type '" + expectedTyped->toString() +
                             "', but got '" + actualType->toString() + "'.",
-                        args[i]->getLocation());
+                        args[i]->getRange());
                 }
             }
         }
@@ -173,10 +215,10 @@ namespace Ryntra::Compiler::Semantic {
         auto funcType = TypeFactory::getFunction(returnType, paramTypeObjs);
 
         auto typedFuncName = std::make_shared<TypedIdentifierNode>(funcName, funcType);
-        typedFuncName->setLocation(funcNameNode->getLocation());
+        typedFuncName->setRange(funcNameNode->getRange());
 
         auto typedCall = std::make_shared<TypedFunctionCallNode>(typedFuncName, typedArgs, returnType);
-        typedCall->setLocation(node.getLocation());
+        typedCall->setRange(node.getRange());
         lastNode = typedCall;
     }
 } // namespace Ryntra::Compiler::Semantic

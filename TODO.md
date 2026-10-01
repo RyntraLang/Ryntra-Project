@@ -1,6 +1,7 @@
 Something will do afterward:
 - Add `--strict` (`-s`) command argument, will treat RCW002 (etc.) as an error.
 - Add `do...while()` block
+- Add Workspace Symbols, Find References and Rename when the multifile compilation is ready.
 
 ****
 
@@ -64,3 +65,22 @@ Semantic Note:
 - ✅ V0.1.0.4 Call Stack, Call Frame
 - ✅ V0.1.0.5 Function VM and Recursion
 - ✅ V0.1.0.6 Function Pointer
+- ✅ V0.1.1.1 Annotation and Struct Declaration
+- ✅ V0.1.1.2 Struct Constructor & Function Declaration
+- ✅ V0.1.1.3 Struct AST Generation
+- ✅ V0.1.1.4 Struct Symbol/Type, Field Symbol, Method Symbol
+- ✅ V0.1.1.5 Struct Semantic Analysis (excludes `private` functionality)
+- ✅ V0.1.1.6 Struct IR Generation
+- ✅ V0.1.1.7 Struct VM Bytecode Generation and Running
+- ✅ V0.1.1.8 Fix some bugs, add some features
+  - ✅ Add initializer for struct fields
+  - ✅ Add constructor calls
+  - ✅ Fix potential stack underflow bugs
+- ✅ V0.1.1.8 `AlignAs()` annotation and `alignof` keyword
+- ✅ V0.1.2.1 LSP message model, JSON-RPC transport, initialize/shutdown/exit
+- ✅ V0.1.2.2 Document manager, didOpen/didChange/didClose
+- ✅ V0.1.2.3 Diagnostics
+- ✅ V0.1.2.4 Definition, Hover
+- ✅ V0.1.2.5 Document Symbols
+- ✅ V0.1.2.6 Completion
+- ✅ V0.1.2.7 Semantic Tokens
