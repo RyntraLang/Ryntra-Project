@@ -6,12 +6,6 @@ set(antlr4-runtime_DIR "C:/vcpkg/vcpkg/vcpkg/installed/x64-windows/share/antlr4-
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 find_package(antlr4-runtime REQUIRED)
 
-# Make the imported runtime visible to sibling projects (e.g. the language
-# server) so they can deploy the shared library next to their executable.
-if (TARGET antlr4_shared)
-    set_target_properties(antlr4_shared PROPERTIES IMPORTED_GLOBAL TRUE)
-endif ()
-
 set(GEN_SCRIPT_DIR "${CMAKE_SOURCE_DIR}/Scripts/GenAllNodesVisitor")
 set(GEN_SCRIPT "${GEN_SCRIPT_DIR}/GenAllNodesVisitor.py")
 set(GEN_NODES_LIST "${GEN_SCRIPT_DIR}/NodesList.txt")
@@ -42,16 +36,6 @@ set(AST_SOURCE
         AST/ASTNodes.cpp
         AST/ASTBuilder.cpp
         ${GENERATED_HEADER}
-)
-
-set(UTILITY_SOURCE
-        ${CMAKE_SOURCE_DIR}/Utility/ErrorHandler/ErrorHandler.cpp
-        ${CMAKE_SOURCE_DIR}/Utility/ErrorHandler/LexParseErrorHandler.h
-        ${CMAKE_SOURCE_DIR}/Utility/ErrorHandler/LexParseErrorHandler.cpp
-        ${CMAKE_SOURCE_DIR}/Utility/SourceLocation/SourceRange.h
-        ${CMAKE_SOURCE_DIR}/Utility/SourceLocation/SourceRangeBuilder.h
-        ${CMAKE_SOURCE_DIR}/Utility/ErrorHandler/InternalCompilerError.h
-        ${CMAKE_SOURCE_DIR}/Utility/ErrorHandler/RuntimeError.h
 )
 
 set(SEMANTIC_SOURCE
@@ -95,7 +79,6 @@ set(VM_SOURCE
         VM/BytecodeGenerator.cpp
         VM/VirtualMachine.h
         VM/VirtualMachine.cpp
-        ${CMAKE_SOURCE_DIR}/Utility/ErrorHandler/InternalCompilerError.h
 )
 
 # The reusable front-end (lexer, parser, AST and semantic analysis). It is shared
@@ -105,21 +88,18 @@ set(VM_SOURCE
 add_library(RyntraFrontend STATIC
         ${ANTLR_SOURCE}
         ${AST_SOURCE}
-        ${UTILITY_SOURCE}
         ${SEMANTIC_SOURCE}
 )
 
 add_dependencies(RyntraFrontend GenerateAllNodesVisitor)
 
-target_link_libraries(RyntraFrontend PUBLIC antlr4_shared)
-
-# Remove this line to silence the deprecated warning of getLocation()/setLocation()
-target_compile_definitions(RyntraFrontend PUBLIC RYNTRA_ENABLE_LOCATION_DEPRECATION)
+# Utility provides the shared ErrorHandler/SourceLocation code and, transitively,
+# the ANTLR runtime used by the generated front-end sources.
+target_link_libraries(RyntraFrontend PUBLIC RyntraUtility antlr4_shared)
 
 target_include_directories(RyntraFrontend PUBLIC
         ${CMAKE_SOURCE_DIR}/ANTLR/antlr-generated
         ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CMAKE_SOURCE_DIR}/Utility
         ${CMAKE_SOURCE_DIR}/
         ${CMAKE_BINARY_DIR} #< Avoid pollute the source tree
 )
@@ -130,7 +110,7 @@ add_executable(RyntraCompiler
         ${VM_SOURCE}
 )
 
-target_link_libraries(RyntraCompiler PRIVATE RyntraFrontend)
+target_link_libraries(RyntraCompiler PRIVATE RyntraFrontend RyntraUtility)
 
 set_target_properties(RyntraCompiler PROPERTIES
         OUTPUT_NAME "rync"

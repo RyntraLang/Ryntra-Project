@@ -49,7 +49,7 @@ set_target_properties(RyntraLSP PROPERTIES
 )
 
 find_package(nlohmann_json CONFIG REQUIRED)
-target_link_libraries(RyntraLSP PRIVATE nlohmann_json::nlohmann_json RyntraFrontend)
+target_link_libraries(RyntraLSP PRIVATE nlohmann_json::nlohmann_json RyntraFrontend RyntraUtility)
 target_include_directories(RyntraLSP PRIVATE LSP/)
 
 # The compiler front-end is linked against the ANTLR shared runtime; place it
