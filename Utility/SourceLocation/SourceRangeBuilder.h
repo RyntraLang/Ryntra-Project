@@ -8,15 +8,18 @@
 #include "SourceRange.h"
 #include "antlr4-runtime.h"
 
-/// \file
-/// \brief Centralized ANTLR to \ref Ryntra::Compiler::SourceRange conversion.
-/// \note This is the only header under \c Utility/ that pulls in the ANTLR runtime,
-/// so it must stay out of broadly-included headers.
-
+/**
+ * @file
+ * @brief Centralized ANTLR to @ref Ryntra::Compiler::SourceRange conversion.
+ * @note This is the only header under <code>Utility/</code> that pulls in the ANTLR runtime,
+ * so it must stay out of broadly-included headers.
+ */
 namespace Ryntra::Compiler {
-    /// \brief Get the start position (line, column, offset) of the token.
-    /// \param t The token, or \c nullptr
-    /// \return The start position, or \c {0, 0, 0} for a null token
+    /**
+     * @brief Get the start position (line, column, offset) of the token.
+     * @param t The token, or @c nullptr
+     * @return The start position, or <code>{0, 0, 0}</code> for a null token.
+     */
     inline SourceLocation tokenStart(antlr4::Token *t) {
         if (t == nullptr) {
             return {0, 0, 0};

@@ -1,4 +1,5 @@
 #include "AST/ASTBuilder.h"
+#include "ArgParsing/ArgParsing.h"
 #include "ErrorHandler/ErrorHandler.h"
 #include "ErrorHandler/LexParseErrorHandler.h"
 #include "ErrorHandler/RuntimeError.h"
@@ -15,32 +16,24 @@
 // #define SHOW_LOG
 
 int main(int argc, char **argv) {
+    using namespace Ryntra::Utility;
     try {
-        bool emitIR = false;
-        bool emitBytecode = false;
-        bool emitAST = false;
-        std::string sourcePath;
+        ArgParser argParser(argc, argv);
+        auto emitIR = argParser.flag("--emit-ir");
+        auto emitBytecode = argParser.flag("--emit-bytecode");
+        auto emitAST = argParser.flag("--emit-ast").alias("-x");
 
-        for (int i = 1; i < argc; ++i) {
-            std::string arg = argv[i];
-            if (arg == "--emit-ir") {
-                emitIR = true;
-            } else if (arg == "--emit-bytecode") {
-                emitBytecode = true;
-            } else if (arg == "--emit-ast") {
-                emitAST = true;
-            } else if (arg.empty() || arg[0] == '-') {
-                // Ignore unknown options.
-            } else {
-                sourcePath = arg;
-            }
+        if (!argParser.parse()) {
+            return 1;
         }
 
-        if (sourcePath.empty()) {
+        const auto &positional = argParser.positional();
+        if (positional.empty()) {
             std::print(std::cerr, "Usage: {} <source-file> [--emit-ast] [--emit-ir] [--emit-bytecode]\n",
                        argv[0]);
             return 1;
         }
+        const std::string &sourcePath = positional.front();
 
         std::string Source;
 

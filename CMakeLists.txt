@@ -40,6 +40,6 @@ message(STATUS "Enabled projects: ${ENABLED_PROJECT_LIST}")
 # Utility is a shared library, not a standalone project, so it is always added
 # regardless of ENABLE_PROJECTS. Consumers link it explicitly.
 add_subdirectory(Utility)
-
+add_subdirectory(BuildSystem)
 add_subdirectory(Compiler)
 add_subdirectory(LSP)

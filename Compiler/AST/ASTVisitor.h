@@ -1,4 +1,4 @@
-// ========== ASTVisitor.h =================================== *- C++ -* ========== //
+// ========== ASTVisitor.h ============================================== *- C++ -* //
 // Copyright (c) 2026 Remimwen Studio. All rights reserved.
 // Part of the Ryntra Project. Licensed under Apache-2.0 License.
 // ================================================================================ //
