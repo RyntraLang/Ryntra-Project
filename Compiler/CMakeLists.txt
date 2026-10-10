@@ -104,13 +104,18 @@ target_include_directories(RyntraFrontend PUBLIC
         ${CMAKE_BINARY_DIR} #< Avoid pollute the source tree
 )
 
-add_executable(RyntraCompiler
-        main.cpp
+add_library(RyntraBackend STATIC
         ${IR_SOURCE}
         ${VM_SOURCE}
 )
 
-target_link_libraries(RyntraCompiler PRIVATE RyntraFrontend RyntraUtility)
+target_link_libraries(RyntraBackend PUBLIC RyntraFrontend RyntraUtility)
+
+add_executable(RyntraCompiler
+        main.cpp
+)
+
+target_link_libraries(RyntraCompiler PRIVATE RyntraBackend)
 
 set_target_properties(RyntraCompiler PROPERTIES
         OUTPUT_NAME "rync"
