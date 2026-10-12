@@ -26,6 +26,9 @@ FIXED: 'fixed';
 STRUCT: 'struct';
 SELF: 'self';
 ALIGNOF: 'alignof';
+PACKAGE: 'package';
+IMPORT: 'import';
+AS: 'as';
 
 // Symbols & Operators
 SEMICOLON: ';';
@@ -89,8 +92,20 @@ WS: [ \t\r\n]+ -> skip;
 
 // Parser Rules
 
+packageDeclaration
+    : PACKAGE qualifiedName SEMICOLON
+    ;
+
+importDeclaration
+    : IMPORT qualifiedName (AS IDENTIFIER)? SEMICOLON
+    ;
+
+qualifiedName
+    : IDENTIFIER (DOT IDENTIFIER)*
+    ;
+
 program
-    : (functionDefinition | structDefinition)+ EOF
+    : packageDeclaration? importDeclaration* (functionDefinition | structDefinition)+ EOF
     ;
 
 functionDefinition
