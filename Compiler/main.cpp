@@ -21,7 +21,7 @@ int main(int argc, char **argv) {
         ArgParser argParser(argc, argv);
         auto emitIR = argParser.flag("--emit-ir");
         auto emitBytecode = argParser.flag("--emit-bytecode");
-        auto emitAST = argParser.flag("--emit-ast").alias("-x");
+        auto emitAST = argParser.flag("--emit-ast");
 
         if (!argParser.parse()) {
             return 1;

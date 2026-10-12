@@ -10,6 +10,9 @@ namespace Ryntra::Compiler {
     class ASTBuilder {
     public:
         std::shared_ptr<ProgramNode> visitProgram(antlr::RyntraParser::ProgramContext *ctx);
+        std::shared_ptr<PackageDeclarationNode> visitPackageDeclaration(antlr::RyntraParser::PackageDeclarationContext *ctx);
+        std::shared_ptr<ImportDeclarationNode> visitImportDeclaration(antlr::RyntraParser::ImportDeclarationContext *ctx);
+        std::shared_ptr<QualifiedNameNode> visitQualifiedName(antlr::RyntraParser::QualifiedNameContext *ctx);
         std::shared_ptr<FunctionDefinitionNode> visitFunctionDefinition(antlr::RyntraParser::FunctionDefinitionContext *ctx);
         std::shared_ptr<ConstructorDeclarationNode> visitConstructor(antlr::RyntraParser::ConstructorContext *ctx);
         std::shared_ptr<StructDeclarationNode> visitStructDefinition(antlr::RyntraParser::StructDefinitionContext *ctx);

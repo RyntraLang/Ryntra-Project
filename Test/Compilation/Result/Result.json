@@ -34,7 +34,11 @@
         },
         {
             "fileName": "3.4 int and long Casting.rynt",
-            "expectOutput": ["[Warning]: (3:12-3:18) [RCW002]: Result of this casting operation will be truncated.", "-1395630315", "123"]
+            "expectOutput": [
+                "[Warning]: \"3.4 int and long Casting.rynt\": (3:12-3:18) [RCW002]: Result of this casting operation will be truncated.",
+                "-1395630315",
+                "123"
+            ]
         },
         {
             "fileName": "3.5 Scan Function.rynt",
@@ -88,7 +92,11 @@
         },
         {
             "fileName": "6.2 Array Index Access.rynt",
-            "expectOutput": ["[Warning]: (6:4-6:12) [RCW001]: Result will be discarded.", "[Warning]: (7:4-7:12) [RCW001]: Result will be discarded.", "[Warning]: (8:4-8:12) [RCW001]: Result will be discarded."]
+            "expectOutput": [
+                "[Warning]: \"6.2 Array Index Access.rynt\": (6:4-6:12) [RCW001]: Result will be discarded.",
+                "[Warning]: \"6.2 Array Index Access.rynt\": (7:4-7:12) [RCW001]: Result will be discarded.",
+                "[Warning]: \"6.2 Array Index Access.rynt\": (8:4-8:12) [RCW001]: Result will be discarded."
+            ]
         },
         {
             "fileName": "6.3 Array Index Assignment.rynt",
@@ -145,13 +153,13 @@
         {
             "fileName": "9.2 Function Pointer Generic Syntax Error.rynt",
             "expectOutput": [
-                "[Error]: (2:21-2:22) [RCE090]: No matching grammar branch"
+                "[Error]: \"9.2 Function Pointer Generic Syntax Error.rynt\": (2:21-2:22) [RCE090]: No matching grammar branch"
             ]
         },
         {
             "fileName": "9.3 Delete Function Pointer Error.rynt",
             "expectOutput": [
-                "[Error]: (8:8-8:17) [RCE077]: Cannot delete a function pointer."
+                "[Error]: \"9.3 Delete Function Pointer Error.rynt\": (8:8-8:17) [RCE077]: Cannot delete a function pointer."
             ]
         },
         {

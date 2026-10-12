@@ -241,6 +241,52 @@ namespace Ryntra::Compiler {
         return ss.str();
     }
 
+    void QualifiedNameNode::accept(IVisitor &visitor) {
+        if (auto *v = dynamic_cast<Visitor<QualifiedNameNode> *>(&visitor)) {
+            v->visit(*this);
+        }
+    }
+
+    std::string QualifiedNameNode::getDottedName() const {
+        std::string result;
+        for (size_t i = 0; i < segments.size(); ++i) {
+            if (i > 0) {
+                result += '.';
+            }
+            result += segments[i]->getName();
+        }
+        return result;
+    }
+
+    std::string QualifiedNameNode::toString() const {
+        return "(QualifiedName " + getDottedName() + ")";
+    }
+
+    void PackageDeclarationNode::accept(IVisitor &visitor) {
+        if (auto *v = dynamic_cast<Visitor<PackageDeclarationNode> *>(&visitor)) {
+            v->visit(*this);
+        }
+    }
+
+    std::string PackageDeclarationNode::toString() const {
+        return "(PackageDeclaration " + name->toString() + ")";
+    }
+
+    void ImportDeclarationNode::accept(IVisitor &visitor) {
+        if (auto *v = dynamic_cast<Visitor<ImportDeclarationNode> *>(&visitor)) {
+            v->visit(*this);
+        }
+    }
+
+    std::string ImportDeclarationNode::toString() const {
+        std::string result = "(ImportDeclaration " + name->toString();
+        if (alias) {
+            result += " " + alias->toString();
+        }
+        result += ")";
+        return result;
+    }
+
     void ProgramNode::accept(IVisitor &visitor) {
         if (auto *v = dynamic_cast<Visitor<ProgramNode> *>(&visitor)) {
             v->visit(*this);
@@ -250,6 +296,12 @@ namespace Ryntra::Compiler {
     std::string ProgramNode::toString() const {
         std::stringstream ss;
         ss << "(Program";
+        if (packageDeclaration) {
+            ss << " " << packageDeclaration->toString();
+        }
+        for (const auto &import : imports) {
+            ss << " " << import->toString();
+        }
         for (const auto &func : functions) {
             ss << " " << func->toString();
         }

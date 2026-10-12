@@ -2,6 +2,14 @@
 
 namespace Ryntra::Compiler {
     std::shared_ptr<ProgramNode> ASTBuilder::visitProgram(antlr::RyntraParser::ProgramContext *ctx) {
+        std::shared_ptr<PackageDeclarationNode> packageDeclaration = nullptr;
+        if (ctx->packageDeclaration()) {
+            packageDeclaration = visitPackageDeclaration(ctx->packageDeclaration());
+        }
+        std::vector<std::shared_ptr<ImportDeclarationNode>> imports;
+        for (auto *importCtx : ctx->importDeclaration()) {
+            imports.push_back(visitImportDeclaration(importCtx));
+        }
         std::vector<std::shared_ptr<FunctionDefinitionNode>> functions;
         for (auto *funcCtx : ctx->functionDefinition()) {
             functions.push_back(visitFunctionDefinition(funcCtx));
@@ -10,7 +18,30 @@ namespace Ryntra::Compiler {
         for (auto *structCtx : ctx->structDefinition()) {
             structs.push_back(visitStructDefinition(structCtx));
         }
-        return createNode<ProgramNode>(ctx, std::move(functions), std::move(structs));
+        return createNode<ProgramNode>(ctx, std::move(packageDeclaration), std::move(imports),
+                                       std::move(functions), std::move(structs));
+    }
+
+    std::shared_ptr<PackageDeclarationNode> ASTBuilder::visitPackageDeclaration(antlr::RyntraParser::PackageDeclarationContext *ctx) {
+        auto name = visitQualifiedName(ctx->qualifiedName());
+        return createNode<PackageDeclarationNode>(ctx, std::move(name));
+    }
+
+    std::shared_ptr<ImportDeclarationNode> ASTBuilder::visitImportDeclaration(antlr::RyntraParser::ImportDeclarationContext *ctx) {
+        auto name = visitQualifiedName(ctx->qualifiedName());
+        std::shared_ptr<IdentifierNode> alias = nullptr;
+        if (ctx->AS()) {
+            alias = createNode<IdentifierNode>(ctx->IDENTIFIER(), ctx->IDENTIFIER()->getText());
+        }
+        return createNode<ImportDeclarationNode>(ctx, std::move(name), std::move(alias));
+    }
+
+    std::shared_ptr<QualifiedNameNode> ASTBuilder::visitQualifiedName(antlr::RyntraParser::QualifiedNameContext *ctx) {
+        std::vector<std::shared_ptr<IdentifierNode>> segments;
+        for (auto *identifierCtx : ctx->IDENTIFIER()) {
+            segments.push_back(createNode<IdentifierNode>(identifierCtx, identifierCtx->getText()));
+        }
+        return createNode<QualifiedNameNode>(ctx, std::move(segments));
     }
 
     std::shared_ptr<FunctionDefinitionNode> ASTBuilder::visitFunctionDefinition(antlr::RyntraParser::FunctionDefinitionContext *ctx) {

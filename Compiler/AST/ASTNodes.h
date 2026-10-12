@@ -435,17 +435,98 @@ namespace Ryntra::Compiler {
         std::shared_ptr<BlockNode> body;
     };
 
-    class ProgramNode : public IASTNode {
+    /**
+     * @brief A dotted qualified name, such as the <code>a.b.C</code> in
+     * <code>import a.b.C;</code>. Holds the identifier segments in source order.
+     */
+    class QualifiedNameNode : public IASTNode {
     public:
-        ProgramNode(std::vector<std::shared_ptr<FunctionDefinitionNode>> funcs,
-                    std::vector<std::shared_ptr<StructDeclarationNode>> structs)
-            : functions(std::move(funcs)), structs(std::move(structs)) {}
-        const std::vector<std::shared_ptr<FunctionDefinitionNode>> &getFunctions() const { return functions; }
-        const std::vector<std::shared_ptr<StructDeclarationNode>> &getStructs() const { return structs; }
+        explicit QualifiedNameNode(std::vector<std::shared_ptr<IdentifierNode>> segments)
+            : segments(std::move(segments)) {}
+        const std::vector<std::shared_ptr<IdentifierNode>> &getSegments() const { return segments; }
+
+        /**
+         * @brief Getter. Join the segments with '.' (e.g. <code>utility.dataStructure.ForwardList</code>).
+         */
+        std::string getDottedName() const;
         void accept(IVisitor &visitor) override;
         std::string toString() const override;
 
     private:
+        std::vector<std::shared_ptr<IdentifierNode>> segments;
+    };
+
+    /**
+     * @brief A <code>package a.b.C;</code> declaration at the top of a translation unit.
+     */
+    class PackageDeclarationNode : public IASTNode {
+    public:
+        explicit PackageDeclarationNode(std::shared_ptr<QualifiedNameNode> name)
+            : name(std::move(name)) {}
+        std::shared_ptr<QualifiedNameNode> getName() const { return name; }
+        void accept(IVisitor &visitor) override;
+        std::string toString() const override;
+
+    private:
+        std::shared_ptr<QualifiedNameNode> name;
+    };
+
+    /**
+     * @brief An <code>import a.b.C [as X];</code> declaration at the top of a
+     * translation unit. The introduced qualifier is the alias when present,
+     * otherwise the last segment of the qualified name.
+     */
+    class ImportDeclarationNode : public IASTNode {
+    public:
+        ImportDeclarationNode(std::shared_ptr<QualifiedNameNode> name, std::shared_ptr<IdentifierNode> alias)
+            : name(std::move(name)), alias(std::move(alias)) {}
+        std::shared_ptr<QualifiedNameNode> getName() const { return name; }
+
+        /**
+         * @brief Getter. The explicit <code>as</code> alias, or @c nullptr when absent.
+         */
+        std::shared_ptr<IdentifierNode> getAlias() const { return alias; }
+        void accept(IVisitor &visitor) override;
+        std::string toString() const override;
+
+    private:
+        std::shared_ptr<QualifiedNameNode> name;
+        std::shared_ptr<IdentifierNode> alias; // nullptr when no `as` alias
+    };
+
+    class ProgramNode : public IASTNode {
+    public:
+        // Backward-compatible constructor: a program with no package/import header.
+        ProgramNode(std::vector<std::shared_ptr<FunctionDefinitionNode>> funcs,
+                    std::vector<std::shared_ptr<StructDeclarationNode>> structs)
+            : functions(std::move(funcs)), structs(std::move(structs)) {}
+
+        ProgramNode(std::shared_ptr<PackageDeclarationNode> packageDeclaration,
+                    std::vector<std::shared_ptr<ImportDeclarationNode>> imports,
+                    std::vector<std::shared_ptr<FunctionDefinitionNode>> funcs,
+                    std::vector<std::shared_ptr<StructDeclarationNode>> structs)
+            : packageDeclaration(std::move(packageDeclaration)), imports(std::move(imports)),
+              functions(std::move(funcs)), structs(std::move(structs)) {}
+
+        const std::vector<std::shared_ptr<FunctionDefinitionNode>> &getFunctions() const { return functions; }
+        const std::vector<std::shared_ptr<StructDeclarationNode>> &getStructs() const { return structs; }
+
+        /**
+         * @brief Getter. The <code>package</code> declaration, or @c nullptr when absent.
+         */
+        std::shared_ptr<PackageDeclarationNode> getPackageDeclaration() const { return packageDeclaration; }
+
+        /**
+         * @brief Getter. The <code>import</code> declarations in source order.
+         */
+        const std::vector<std::shared_ptr<ImportDeclarationNode>> &getImports() const { return imports; }
+
+        void accept(IVisitor &visitor) override;
+        std::string toString() const override;
+
+    private:
+        std::shared_ptr<PackageDeclarationNode> packageDeclaration;
+        std::vector<std::shared_ptr<ImportDeclarationNode>> imports;
         std::vector<std::shared_ptr<FunctionDefinitionNode>> functions;
         std::vector<std::shared_ptr<StructDeclarationNode>> structs;
     };
