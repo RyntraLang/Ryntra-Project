@@ -24,6 +24,9 @@ namespace Ryntra::Compiler {
         ErrorType type;
         std::string description;
         SourceRange range;
+        /// \brief The file the diagnostic originates from. Empty when unknown
+        /// (e.g. diagnostics not created through a file-scoped analysis pass).
+        std::string file;
 
         /// \brief Constructor. Accepts the error type, the source range and the description
         /// \param type The error type
@@ -77,11 +80,31 @@ namespace Ryntra::Compiler {
         /// \brief Print ALL the error object in the list in the format of
         /// \code [TYPE] (line:column) DESC \endcode for an empty range, or
         /// \code [TYPE] (line:column-end.line:end.column) DESC \endcode for a span.
+        /// When file names are enabled (see @ref setShowFileNames) and the object
+        /// carries a file, the file is inserted after the type tag, e.g.
+        /// \code [Error]: "main.rynt": (3:4) DESC \endcode .
         void print() const;
 
         /// \brief Remove every collected error object so the handler can be reused
         /// for a fresh analysis pass (e.g. by the language server).
         void clear();
+
+        /// \brief Set the file name stamped onto every diagnostic created from now
+        /// on. Call this whenever analysis switches to a different translation unit.
+        /// \param file The file name to attribute subsequent diagnostics to.
+        void setCurrentFile(std::string file);
+
+        /// \brief Getter. The file name currently stamped onto new diagnostics.
+        [[nodiscard]] const std::string &getCurrentFile() const { return currentFile; }
+
+        /// \brief Enable or disable prefixing each printed diagnostic with its file
+        /// name. Disabled by default so single-document consumers (e.g. LSP) and the
+        /// legacy output format are unaffected.
+        /// \param enabled Whether to print the file name.
+        void setShowFileNames(bool enabled) { showFileNames = enabled; }
+
+        /// \brief Getter. Whether printed diagnostics include their file name.
+        [[nodiscard]] bool getShowFileNames() const { return showFileNames; }
 
         ErrorHandler(const ErrorHandler &) = delete;
         ErrorHandler &operator=(const ErrorHandler &) = delete;
@@ -103,5 +126,7 @@ namespace Ryntra::Compiler {
         static std::string formatRange(const SourceRange &range);
 
         std::vector<ErrorObject> errorObjects;
+        std::string currentFile;
+        bool showFileNames = false;
     };
 } // namespace Ryntra::Compiler

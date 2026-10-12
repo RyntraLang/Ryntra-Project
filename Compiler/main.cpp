@@ -10,6 +10,7 @@
 #include <antlr/RyntraLexer.h>
 #include <antlr/RyntraParser.h>
 #include <antlr4-runtime.h>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 
@@ -45,6 +46,12 @@ int main(int argc, char **argv) {
             std::print(std::cerr, "Error: cannot open source file '{}'\n", sourcePath);
             return 1;
         }
+
+        // Attribute every diagnostic to the file being compiled and include the
+        // file name in the printed output (e.g. `[Error]: "main.rynt": (1:2) ...`).
+        Ryntra::Compiler::ErrorHandler::getInstance().setShowFileNames(true);
+        Ryntra::Compiler::ErrorHandler::getInstance().setCurrentFile(
+            std::filesystem::path(sourcePath).filename().string());
 
 #ifdef SHOW_LOG
         std::cout << "Source: " << std::endl;

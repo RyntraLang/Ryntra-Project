@@ -24,15 +24,15 @@ namespace Ryntra::Compiler {
     }
 
     void ErrorHandler::makeHint(const std::string &desc, const SourceRange &range) {
-        errorObjects.emplace_back(kHint, range, desc);
+        errorObjects.emplace_back(kHint, range, desc).file = currentFile;
     }
 
     void ErrorHandler::makeError(const std::string &desc, const SourceRange &range) {
-        errorObjects.emplace_back(kError, range, desc);
+        errorObjects.emplace_back(kError, range, desc).file = currentFile;
     }
 
     void ErrorHandler::makeWarning(const std::string &desc, const SourceRange &range) {
-        errorObjects.emplace_back(kWarning, range, desc);
+        errorObjects.emplace_back(kWarning, range, desc).file = currentFile;
     }
 
     void ErrorHandler::makeHint(const std::string &desc, const SourceLocation &location) {
@@ -51,18 +51,26 @@ namespace Ryntra::Compiler {
         errorObjects.clear();
     }
 
+    void ErrorHandler::setCurrentFile(std::string file) {
+        currentFile = std::move(file);
+    }
+
     void ErrorHandler::print() const {
         for (const auto &i : errorObjects) {
             const std::string location = formatRange(i.range);
+            std::string filePrefix;
+            if (showFileNames && !i.file.empty()) {
+                filePrefix = "\"" + i.file + "\": ";
+            }
             if (i.type == kError) {
                 std::cout << "[" << COLORED_TEXT_RED << "Error" << COLORED_TEXT_DEFAULT << "]: "
-                          << location << " " << i.description << std::endl;
+                          << filePrefix << location << " " << i.description << std::endl;
             } else if (i.type == kWarning) {
                 std::cout << "[" << COLORED_TEXT_YELLOW << "Warning" << COLORED_TEXT_DEFAULT << "]: "
-                          << location << " " << i.description << std::endl;
+                          << filePrefix << location << " " << i.description << std::endl;
             } else if (i.type == kHint) {
                 std::cout << "[" << COLORED_TEXT_CYAN << "Hint" << COLORED_TEXT_DEFAULT << "]: "
-                          << location << " " << i.description << std::endl;
+                          << filePrefix << location << " " << i.description << std::endl;
             }
         }
     }
