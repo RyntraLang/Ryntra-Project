@@ -133,11 +133,42 @@ namespace Ryntra::Compiler::Semantic {
     }
 
     void SymbolTable::enterScope(Scope::Kind kind, const SourceRange &range) {
-        auto scope = std::make_unique<Scope>();
+        scopes.push_back(createScope(kind, range));
+    }
+
+    std::shared_ptr<Scope> SymbolTable::createScope(Scope::Kind kind, const SourceRange &range) {
+        auto scope = std::make_shared<Scope>();
         scope->parent = scopes.empty() ? nullptr : scopes.back().get();
         scope->kind = kind;
         scope->range = range;
-        scopes.emplace_back(std::move(scope));
+        return scope;
+    }
+
+    void SymbolTable::pushScope(const std::shared_ptr<Scope> &scope) {
+        scopes.push_back(scope);
+    }
+
+    std::shared_ptr<Scope> SymbolTable::getCurrentScope() const {
+        return scopes.empty() ? nullptr : scopes.back();
+    }
+
+    std::shared_ptr<Scope> SymbolTable::getGlobalScope() const {
+        return scopes.empty() ? nullptr : scopes.front();
+    }
+
+    std::shared_ptr<Symbol> SymbolTable::resolveIn(const std::shared_ptr<Scope> &scope, const std::string &name) {
+        return scope ? scope->find(name) : nullptr;
+    }
+
+    void SymbolTable::definePackage(const std::string &fullName, const std::shared_ptr<Scope> &scope,
+                                    const SourceRange &range) {
+        auto global = getGlobalScope();
+        if (!global) {
+            return;
+        }
+        auto packageSymbol = std::make_shared<PackageSymbol>(fullName, scope);
+        global->symbols[fullName] = packageSymbol;
+        definitions.push_back({fullName, range, std::move(packageSymbol), true, global->range});
     }
 
     void SymbolTable::exitScope() {

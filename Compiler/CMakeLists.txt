@@ -47,6 +47,7 @@ set(SEMANTIC_SOURCE
         Semantic/Sema/FunctionCall.cpp
         Semantic/Sema/Literals.cpp
         Semantic/Sema/Operators.cpp
+        Semantic/Sema/Packages.cpp
         Semantic/Sema/RefAndPtr.cpp
 )
 

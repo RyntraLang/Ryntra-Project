@@ -94,7 +94,7 @@ namespace Ryntra::Compiler::Semantic {
 
                 auto structType = toTypedType(structSTType);
                 auto typedCtor = std::make_shared<TypedConstructorCallNode>(
-                    funcName, std::move(typedArgs), std::move(ctorParamTypes),
+                    typedTopLevelName(funcName), std::move(typedArgs), std::move(ctorParamTypes),
                     ctor != nullptr, structType);
                 typedCtor->setRange(node.getRange());
                 lastNode = typedCtor;
@@ -214,7 +214,7 @@ namespace Ryntra::Compiler::Semantic {
             paramTypeObjs.push_back(toTypedType(pt));
         auto funcType = TypeFactory::getFunction(returnType, paramTypeObjs);
 
-        auto typedFuncName = std::make_shared<TypedIdentifierNode>(funcName, funcType);
+        auto typedFuncName = std::make_shared<TypedIdentifierNode>(typedTopLevelName(funcName), funcType);
         typedFuncName->setRange(funcNameNode->getRange());
 
         auto typedCall = std::make_shared<TypedFunctionCallNode>(typedFuncName, typedArgs, returnType);

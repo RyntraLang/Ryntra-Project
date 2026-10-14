@@ -208,6 +208,11 @@ namespace Ryntra::Compiler::Semantic {
             args = node.getArgumentList()->getArguments();
         }
 
+        // `P.func(...)` / `P.Struct(...)`: qualified call into an imported package.
+        if (tryQualifiedCall(node.getObject(), methodName, args, node.getRange())) {
+            return;
+        }
+
         node.getObject()->accept(*this);
         auto typedObject = std::dynamic_pointer_cast<TypedExpressionNode>(lastNode);
         if (!typedObject) {

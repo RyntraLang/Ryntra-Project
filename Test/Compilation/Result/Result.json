@@ -182,6 +182,10 @@
                 "99",
                 "11"
             ]
+        },
+        {
+            "fileName": "11.1 Package Declaration.rynt",
+            "expectOutput": ["42"]
         }
     ]
 }

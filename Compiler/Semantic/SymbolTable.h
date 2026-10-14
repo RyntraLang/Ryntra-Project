@@ -234,7 +234,8 @@ namespace Ryntra::Compiler::Semantic {
         Function,
         OverloadSet,
         Type,
-        Field
+        Field,
+        Package
     };
 
     class Symbol {
@@ -321,10 +322,11 @@ namespace Ryntra::Compiler::Semantic {
 
         enum class Kind {
             Global,
+            Package,
             Function,
             Block,
             Class
-        } kind;
+        } kind = Kind::Global;
 
         // Source span of the construct that opened this scope (for tooling).
         SourceRange range;
@@ -342,7 +344,28 @@ namespace Ryntra::Compiler::Semantic {
             return nullptr;
         }
 
+        // Look up a name only in this scope (no parent walk).
+        std::shared_ptr<Symbol> findLocal(const std::string &name) const {
+            auto iterator = symbols.find(name);
+            return iterator == symbols.end() ? nullptr : iterator->second;
+        }
+
         std::unordered_map<std::string, std::shared_ptr<Symbol>> symbols;
+    };
+
+    /// \brief A package (translation-unit) symbol. Registered in the global scope
+    /// under the package's dotted name and wrapping the package's own scope, which
+    /// holds its top-level struct/function symbols.
+    class PackageSymbol : public Symbol {
+    public:
+        PackageSymbol(std::string name, std::shared_ptr<Scope> scope)
+            : Symbol(std::move(name)), scope(std::move(scope)) {}
+
+        const std::shared_ptr<Scope> &getScope() const { return scope; }
+        SymbolKind getKind() const override { return SymbolKind::Package; }
+
+    private:
+        std::shared_ptr<Scope> scope;
     };
 
     /// \brief A symbol declaration captured while analysing, kept for tooling
@@ -363,10 +386,28 @@ namespace Ryntra::Compiler::Semantic {
         SymbolTable();
 
         void enterScope(Scope::Kind kind = Scope::Kind::Global, const SourceRange &range = {});
+
+        /// \brief Create a new scope parented to the current scope but do not enter
+        /// it. Used to build persistent package scopes up front.
+        std::shared_ptr<Scope> createScope(Scope::Kind kind, const SourceRange &range = {});
+
+        /// \brief Enter an already-created scope (e.g. a package scope).
+        void pushScope(const std::shared_ptr<Scope> &scope);
+
         void exitScope();
+
+        [[nodiscard]] std::shared_ptr<Scope> getCurrentScope() const;
+        [[nodiscard]] std::shared_ptr<Scope> getGlobalScope() const;
 
         void define(std::shared_ptr<Symbol> symbol, const SourceRange &range);
         std::shared_ptr<Symbol> resolve(const std::string &name);
+
+        /// \brief Resolve a name starting from an explicit scope, walking parents.
+        static std::shared_ptr<Symbol> resolveIn(const std::shared_ptr<Scope> &scope, const std::string &name);
+
+        /// \brief Register a package symbol in the global scope under its dotted name.
+        void definePackage(const std::string &fullName, const std::shared_ptr<Scope> &scope,
+                           const SourceRange &range = {});
 
         // Every declaration registered through define(), in source order.
         [[nodiscard]] const std::vector<SymbolDefinition> &getDefinitions() const { return definitions; }
@@ -376,7 +417,7 @@ namespace Ryntra::Compiler::Semantic {
         static bool isAddressable(const std::shared_ptr<Symbol> &symbol);
 
     private:
-        std::vector<std::unique_ptr<Scope>> scopes;
+        std::vector<std::shared_ptr<Scope>> scopes;
         std::vector<SymbolDefinition> definitions;
     };
 } // namespace Ryntra::Compiler::Semantic

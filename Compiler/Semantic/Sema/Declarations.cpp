@@ -225,159 +225,18 @@ namespace Ryntra::Compiler::Semantic {
     }
 
     void SemanticAnalyzer::visit(ProgramNode &node) {
-        // Pre-register struct types so function/method signatures can name them.
-        // The bodies are analyzed later, once builtins are available.
-        for (const auto &strct : node.getStructs()) {
-            auto structName = strct->getName()->getName();
-            if (std::dynamic_pointer_cast<TypeSymbol>(symbolTable.resolve(structName))) {
-                continue;
-            }
+        // Single-unit path: declarations live in the current (global) scope so the
+        // language server and single-file compiles are unchanged.
+        registerProgramDeclarations(node);
+        registerBuiltins();
 
-            auto structSTType = std::make_shared<STType::StructType>(structName);
-            applyStructAlignment(*strct, structSTType);
-            structTypes[structName] = structSTType;
-            symbolTable.define(std::make_shared<TypeSymbol>(structName, structSTType), strct->getRange());
-            registerStructMembers(structSTType, strct->getMemberList());
-        }
-
-        for (const auto &func : node.getFunctions()) {
-            auto funcName = func->getName()->getName();
-
-            func->getReturnType()->accept(*this);
-            auto returnType = lastType ? lastType : makeSTType("unknown");
-
-            std::vector<TypePtr> paramTypes;
-            if (func->getParameterList()) {
-                for (const auto &param : func->getParameterList()->getParameters()) {
-                    param->getType()->accept(*this);
-                    paramTypes.push_back(lastType ? lastType : makeSTType("unknown"));
-                }
-            }
-
-            auto newFuncSym = std::make_shared<FunctionSymbol>(funcName, returnType, std::move(paramTypes));
-            auto existingSym = symbolTable.resolve(funcName);
-
-            if (!existingSym) {
-                auto overloadSet = std::make_shared<OverloadSet>(funcName);
-                overloadSet->addFunction(std::move(newFuncSym));
-                symbolTable.define(overloadSet, func->getRange());
-            } else if (auto overloadSet = std::dynamic_pointer_cast<OverloadSet>(existingSym)) {
-                bool isDuplicate = false;
-                for (const auto &existing : overloadSet->getFunctions()) {
-                    if (existing->getParamTypes().size() != newFuncSym->getParamTypes().size())
-                        continue;
-                    bool match = true;
-                    for (size_t i = 0; i < existing->getParamTypes().size(); ++i) {
-                        if (existing->getParamTypes()[i]->getKind() != newFuncSym->getParamTypes()[i]->getKind()) {
-                            match = false;
-                            break;
-                        }
-                    }
-                    if (match) {
-                        ErrorHandler::getInstance().makeError(
-                            "[RCE001]: Function '" + funcName + "' is already defined with the same signature.",
-                            func->getRange());
-                        isDuplicate = true;
-                        break;
-                    }
-                }
-                if (!isDuplicate) {
-                    overloadSet->addFunction(std::move(newFuncSym));
-                }
-            }
-        }
-
-        if (!symbolTable.resolve("__builtin_print")) {
-            auto overloadSet = std::make_shared<OverloadSet>("__builtin_print");
-
-            {
-                std::vector<TypePtr> params{std::make_shared<STType::StringType>()};
-                overloadSet->addFunction(std::make_shared<FunctionSymbol>("__builtin_print",
-                                                                           std::make_shared<STType::VoidType>(), std::move(params)));
-            }
-            {
-                std::vector<TypePtr> params{std::make_shared<STType::Int32Type>()};
-                overloadSet->addFunction(std::make_shared<FunctionSymbol>("__builtin_print",
-                                                                           std::make_shared<STType::VoidType>(), std::move(params)));
-            }
-            {
-                std::vector<TypePtr> params{std::make_shared<STType::Int64Type>()};
-                overloadSet->addFunction(std::make_shared<FunctionSymbol>("__builtin_print",
-                                                                           std::make_shared<STType::VoidType>(), std::move(params)));
-            }
-            {
-                std::vector<TypePtr> params{std::make_shared<STType::BoolType>()};
-                overloadSet->addFunction(std::make_shared<FunctionSymbol>("__builtin_print",
-                                                                           std::make_shared<STType::VoidType>(), std::move(params)));
-            }
-
-            symbolTable.define(overloadSet, SourceRange(SourceLocation{0, 0, 0}));
-        }
-
-        if (!symbolTable.resolve("__builtin_scan")) {
-            auto overloadSet = std::make_shared<OverloadSet>("__builtin_scan");
-
-            {
-                std::vector<TypePtr> params{};
-                overloadSet->addFunction(std::make_shared<FunctionSymbol>("__builtin_scan",
-                                                                           std::make_shared<STType::Int32Type>(), std::move(params)));
-            }
-            {
-                std::vector<TypePtr> params{};
-                overloadSet->addFunction(std::make_shared<FunctionSymbol>("__builtin_scan",
-                                                                           std::make_shared<STType::Int64Type>(), std::move(params)));
-            }
-            {
-                std::vector<TypePtr> params{};
-                overloadSet->addFunction(std::make_shared<FunctionSymbol>("__builtin_scan",
-                                                                           std::make_shared<STType::BoolType>(), std::move(params)));
-            }
-
-            symbolTable.define(overloadSet, SourceRange(SourceLocation{0, 0, 0}));
-        }
-
-        // Program-entry checks only matter when producing an executable, so they are
-        // disabled for editor analysis (the language server).
         if (compilationMode == CompilationMode::CLI) {
-            auto mainSym = symbolTable.resolve("main");
-            if (!mainSym) {
-                ErrorHandler::getInstance().makeError(
-                    "[RCE002]: 'main' function is not defined.", node.getRange());
-            } else if (auto overloadSet = std::dynamic_pointer_cast<OverloadSet>(mainSym)) {
-                if (overloadSet->getFunctions().empty()) {
-                    ErrorHandler::getInstance().makeError(
-                        "[RCE003]: 'main' is not a function.", node.getRange());
-                } else {
-                    auto mainFuncSym = overloadSet->getFunctions()[0];
-                    if (!mainFuncSym->getReturnType()) {
-                        ErrorHandler::getInstance().makeError(
-                            "[RCE004]: 'main' function must have a return type.", node.getRange());
-                    } else if (mainFuncSym->getReturnType()->getKind() != STType::TypeKind::Void) {
-                        ErrorHandler::getInstance().makeError(
-                            "[RCE005]: 'main' function must return 'void'.", node.getRange());
-                    }
-                }
-            } else {
-                ErrorHandler::getInstance().makeError(
-                    "[RCE003]: 'main' is not a function.", node.getRange());
-            }
+            checkEntryPoint(symbolTable.getCurrentScope(), node.getRange());
         }
 
         std::vector<std::shared_ptr<TypedFunctionDefinitionNode>> typedFunctions;
-        for (const auto &func : node.getFunctions()) {
-            func->accept(*this);
-            if (auto typedFunc = std::dynamic_pointer_cast<TypedFunctionDefinitionNode>(lastNode)) {
-                typedFunctions.push_back(typedFunc);
-            }
-        }
-
         std::vector<std::shared_ptr<TypedStructDeclarationNode>> typedStructs;
-        for (const auto &strct : node.getStructs()) {
-            strct->accept(*this);
-            if (auto typedStruct = std::dynamic_pointer_cast<TypedStructDeclarationNode>(lastNode)) {
-                typedStructs.push_back(typedStruct);
-            }
-        }
+        analyzeProgramBodies(node, typedFunctions, typedStructs);
 
         typedProgram = std::make_shared<TypedProgramNode>(std::move(typedFunctions), std::move(typedStructs));
         typedProgram->setRange(node.getRange());
@@ -390,6 +249,9 @@ namespace Ryntra::Compiler::Semantic {
         currentFunctionReturnType = returnType;
 
         auto funcName = node.getName()->getName();
+        // Top-level functions are package-qualified in the typed AST (methods are
+        // mangled with their struct in codegen instead).
+        const std::string typedName = currentStruct ? funcName : typedTopLevelName(funcName);
 
         symbolTable.enterScope(Scope::Kind::Function, node.getRange());
 
@@ -418,7 +280,7 @@ namespace Ryntra::Compiler::Semantic {
 
         if (typedBody) {
             auto typedFunc = std::make_shared<TypedFunctionDefinitionNode>(
-                funcName, toTypedType(returnType), typedParamList, typedBody);
+                typedName, toTypedType(returnType), typedParamList, typedBody);
             typedFunc->setRange(node.getRange());
             lastNode = typedFunc;
         } else {
@@ -691,7 +553,7 @@ namespace Ryntra::Compiler::Semantic {
             type = TypeFactory::getPrimitive("unknown");
         }
 
-        auto typedNode = std::make_shared<TypedIdentifierNode>(name, type);
+        auto typedNode = std::make_shared<TypedIdentifierNode>(typedTopLevelName(name), type);
         typedNode->setRange(node.getRange());
         lastNode = typedNode;
     }
@@ -712,7 +574,7 @@ namespace Ryntra::Compiler::Semantic {
         // during pre-registration; here we only analyze the member bodies.
         auto memberList = node.getMemberList();
 
-        structTypes[structName] = structSTType;
+        structTypes[structSTType->getName()] = structSTType;
 
         if (!std::dynamic_pointer_cast<TypeSymbol>(symbolTable.resolve(structName))) {
             symbolTable.define(std::make_shared<TypeSymbol>(structName, structSTType), node.getRange());
@@ -843,6 +705,11 @@ namespace Ryntra::Compiler::Semantic {
     }
 
     void SemanticAnalyzer::visit(MemberAccessNode &node) {
+        // `P.Symbol`: a qualified reference into an imported package.
+        if (tryQualifiedMemberAccess(node)) {
+            return;
+        }
+
         node.getObject()->accept(*this);
         auto typedObject = std::dynamic_pointer_cast<TypedExpressionNode>(lastNode);
         if (!typedObject) {
@@ -904,6 +771,21 @@ namespace Ryntra::Compiler::Semantic {
     }
 
     void SemanticAnalyzer::visit(MemberAssignmentNode &node) {
+        // A package member (function/type) is never assignable.
+        if (auto target = node.getTarget()) {
+            if (auto var = std::dynamic_pointer_cast<VariableNode>(target->getObject())) {
+                const std::string &qualifier = var->getName()->getName();
+                if (isPackageQualifier(qualifier)) {
+                    ErrorHandler::getInstance().makeError(
+                        "[RCE112]: Cannot assign to package member '" + qualifier + "." +
+                            target->getMember()->getName() + "'.",
+                        node.getRange());
+                    lastNode = nullptr;
+                    return;
+                }
+            }
+        }
+
         node.getTarget()->accept(*this);
         auto typedTarget = std::dynamic_pointer_cast<TypedMemberAccessNode>(lastNode);
         if (!typedTarget) {

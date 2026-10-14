@@ -4,6 +4,7 @@
 #include "../AST/ASTVisitor.h"
 #include "Compiler/GeneratedHeader/AllNodesVisitor.h"
 #include "CompilationMode.h"
+#include "ProgramSet.h"
 #include "SymbolTable.h"
 #include "TypedAST.h"
 #include <unordered_map>
@@ -20,6 +21,10 @@ namespace Ryntra::Compiler::Semantic {
         [[nodiscard]] CompilationMode getCompilationMode() const { return compilationMode; }
 
         void analyze(const std::shared_ptr<IASTNode> &root);
+        // Package-aware entry point: analyse every unit of a program, resolving
+        // cross-package qualified names. The entry check is scoped to the entry
+        // package's `main`. Single-unit callers keep using analyze().
+        void analyzeProgramSet(const ProgramSet &programSet);
         std::shared_ptr<TypedProgramNode> getTypedAST() const { return typedProgram; }
 
         // Declaration index collected during analysis, for tooling (hover / definition).
@@ -93,6 +98,46 @@ namespace Ryntra::Compiler::Semantic {
         // resolve fields/methods from the `TypeSystem::StructType` stored in the
         // typed AST, which only carries the struct name.
         std::unordered_map<std::string, std::shared_ptr<STType::StructType>> structTypes;
+
+        // --- Package-aware analysis state -------------------------------------
+        // Package of the unit being analysed ("" = default root package).
+        std::string currentPackage_;
+        // qualifier -> full package name, for the unit currently being analysed.
+        std::unordered_map<std::string, std::string> importQualifiers_;
+        // full package name -> its scope (holds the package's top-level symbols).
+        std::unordered_map<std::string, std::shared_ptr<Scope>> packageScopes_;
+
+        // Shared driver building blocks (used by both the single-unit path and
+        // analyzeProgramSet so behavior stays identical).
+        void registerBuiltins();
+        void registerProgramDeclarations(ProgramNode &node);
+        void analyzeProgramBodies(ProgramNode &node,
+                                  std::vector<std::shared_ptr<TypedFunctionDefinitionNode>> &outFunctions,
+                                  std::vector<std::shared_ptr<TypedStructDeclarationNode>> &outStructs);
+        void checkEntryPoint(const std::shared_ptr<Scope> &scope, const SourceRange &range);
+        void loadImportContext(const TranslationUnit &unit);
+        void validateImports(const TranslationUnit &unit);
+
+        // Qualify a top-level name with a package ("pkg$name"); plain for the default
+        // package. `qualifyName` uses the package of the unit being analysed.
+        static std::string qualifyNameIn(const std::string &package, const std::string &name);
+        std::string qualifyName(const std::string &name) const;
+        // Name to use in the typed AST for a top-level declaration/reference: qualified
+        // when it belongs to the current (non-default) package, plain for globals.
+        std::string typedTopLevelName(const std::string &name);
+
+        // Package-qualifier resolution for `P.func(...)` / `P.Symbol`.
+        bool isPackageQualifier(const std::string &name);
+        std::shared_ptr<Scope> resolvePackageQualifier(const std::string &name);
+        // Handle `P.func(...)` / `P.Struct(...)`. Returns true when the callee object
+        // was a package qualifier and the call was handled (a diagnostic may have been
+        // reported); false to fall back to normal struct/pointer call resolution.
+        bool tryQualifiedCall(const std::shared_ptr<ExpressionNode> &objectExpr,
+                              const std::string &memberName,
+                              const std::vector<std::shared_ptr<ExpressionNode>> &args,
+                              const SourceRange &range);
+        // Handle `P.Symbol` member access on a package. Returns true when handled.
+        bool tryQualifiedMemberAccess(MemberAccessNode &node);
 
         // Convert STType::Type -> TypeSystem::Type (for TypedAST nodes)
         static std::shared_ptr<Type> toTypedType(const TypePtr &stType);
