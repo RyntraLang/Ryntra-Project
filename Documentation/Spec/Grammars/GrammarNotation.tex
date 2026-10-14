@@ -1,0 +1,20 @@
+\section{Grammar Notation}
+\label{sec:grammar-notation}
+
+Terminal symbols are shown in UPPER CASE FONT in the productions of the lexical and syntactic grammars.
+
+Nonterminal symbols are shown in normal font.
+The definition of a nonterminal symbol is defined by the name of the nonterminal being defined, followed by a colon.
+One or more alternative definitions followed by lines start with \codeinline{|}.
+
+For example, this notation represents a for loop statement.
+(The meanings of \codeinline{?}, \codeinline{[]}, and \mintinline{text}|{}| are explained later.)
+
+% ? means zero or one     (?)
+% [] means zero or more   (*)
+% {} means one or more    (+)
+
+\begin{minted}{text}
+        forStatement
+            FOR ( forInitClause? ; forCondClause? ; forOperClause? ) block
+\end{minted}

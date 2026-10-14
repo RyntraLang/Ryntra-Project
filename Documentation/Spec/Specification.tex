@@ -1,0 +1,29 @@
+\documentclass[11pt]{book}
+
+% Packages
+\usepackage{amsmath}
+\usepackage[outputdir=../../cmake-build-debug/Documentation]{minted}
+\usepackage[]{setspace}
+\usepackage[margin=1in]{geometry}
+
+% Document
+\title{The Ryntra Programming Language Specification}
+\begin{document}
+    \setminted{
+        baselinestretch=1.5
+    }
+
+    \onehalfspacing
+
+    \newcommand{\codeinline}[1]{\mintinline{text}|#1|}
+
+    \chapter{Grammar}\label{ch:grammar}
+
+    This chapter describes the context-free grammar used in this Specification
+    to describe the lexical and syntactic structures of a program.
+
+    \clearpage
+
+    \input{Grammars/ContextFreeGrammar}
+    \input{Grammars/GrammarNotation}
+\end{document}

@@ -1,0 +1,23 @@
+\section{Context-Free Grammar}
+\label{sec:context-free-grammar}
+
+A Context-Free Grammar is a formal system used to describe the syntax structure of languages.
+It's called "context-free" because each production rule can be applied regardless of the surrounding symbols
+(i.e., the context doesn't matter).
+
+A CFG is defined by a 4-tuple $(V, \Sigma, R, S)$, where:
+
+\begin{itemize}
+    \item $V$: A finite set of \textit{variables} (also called non-terminal symbols).
+    This represents syntactic categories.
+    \item $\Sigma$: A finite set of \textit{terminal symbols} (the actual characters/tokens in the language). $V$ and $\Sigma$ are disjoint.
+    \item $R$: A finite set of production rules, each of the form:
+    \begin{itemize}
+        \item $A \in V$ (a single non-terminal)
+        \item $\alpha \in (V \cup \Sigma)*$ (a string of terminals and/or non-terminals)
+    \end{itemize}
+    \item $S \in V$: The start symbol, from which derivations begin.
+\end{itemize}
+
+The defining feature of a CFG is that the left-hand side of every rule is a single non-terminal.
+This means you can replace that non-terminal with the right-hand side no matter what context it appears in—hence "context-free."
