@@ -94,7 +94,7 @@ namespace Ryntra::Compiler::Semantic {
                 }
 
                 structType->defineMethod(std::make_shared<FunctionSymbol>(
-                    ctor->getName()->getName(), structType, std::move(paramTypes)), ctor->getRange());
+                    structType->getName(), structType, std::move(paramTypes)), ctor->getRange());
             }
         }
     }
@@ -611,7 +611,7 @@ namespace Ryntra::Compiler::Semantic {
         currentStruct = savedStruct;
 
         auto typedStruct = std::make_shared<TypedStructDeclarationNode>(
-            structName, std::move(typedFields), std::move(typedConstructors), std::move(typedMethods),
+            structSTType->getName(), std::move(typedFields), std::move(typedConstructors), std::move(typedMethods),
             structSTType->getExplicitAlignment());
         typedStruct->setRange(node.getRange());
         lastNode = typedStruct;
@@ -683,8 +683,11 @@ namespace Ryntra::Compiler::Semantic {
         auto typedParamList = std::make_shared<TypedParameterListNode>(std::move(typedParams));
         typedParamList->setRange(node.getParameterList() ? node.getParameterList()->getRange() : node.getRange());
 
+        // Constructors are mangled against their (package-qualified) struct name, so
+        // the typed constructor carries that name too.
+        const std::string typedCtorName = currentStruct ? currentStruct->getName() : ctorName;
         auto typedCtor = std::make_shared<TypedConstructorDeclarationNode>(
-            ctorName, typedParamList, typedBody);
+            typedCtorName, typedParamList, typedBody);
         typedCtor->setRange(node.getRange());
         lastNode = typedCtor;
     }

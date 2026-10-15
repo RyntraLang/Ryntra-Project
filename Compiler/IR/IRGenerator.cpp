@@ -10,8 +10,32 @@ namespace Ryntra::IR {
     std::shared_ptr<Module> IRGenerator::generate(Sem::TypedProgramNode &program,
                                                    const std::string &moduleName) {
         builder_.createModule(moduleName);
+        resetTransientState();
         program.accept(*this);
         return builder_.getModule();
+    }
+
+    std::shared_ptr<Module> IRGenerator::generateInto(std::shared_ptr<Module> module,
+                                                       Sem::TypedProgramNode &program) {
+        if (!module) {
+            module = builder_.createModule("module");
+        } else {
+            builder_.setModule(module);
+        }
+        // Per-unit transient state is reset; shared function/struct maps persist so
+        // several units accumulate into one module without name collisions.
+        resetTransientState();
+        program.accept(*this);
+        return builder_.getModule();
+    }
+
+    void IRGenerator::resetTransientState() {
+        lastValue_ = nullptr;
+        currentFunctionName_.clear();
+        ifCounter_ = 0;
+        loopStack_.clear();
+        allocaMap_.clear();
+        currentSelfValue_ = nullptr;
     }
 
     std::shared_ptr<Type> IRGenerator::toIRType(const std::shared_ptr<Sem::Type> &semType) {

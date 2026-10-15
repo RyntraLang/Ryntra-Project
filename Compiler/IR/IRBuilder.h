@@ -15,6 +15,10 @@ namespace Ryntra::IR {
 
         std::shared_ptr<Module> createModule(const std::string &name);
 
+        /// \brief Attach the builder to an existing module so further IR is
+        /// appended to it (used to generate several units into one module).
+        void setModule(std::shared_ptr<Module> module) { currentModule_ = std::move(module); }
+
         std::shared_ptr<Function> createFunction(const std::string &name,
                                                  std::shared_ptr<Type> returnType,
                                                  const std::vector<Function::Parameter> &parameters = {},

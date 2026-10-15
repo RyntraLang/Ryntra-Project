@@ -15,6 +15,18 @@ namespace Ryntra::IR {
         std::shared_ptr<Module> generate(Compiler::Semantic::TypedProgramNode &program,
                                          const std::string &moduleName = "module");
 
+        /// \brief Lower a (possibly merged, multi-package) typed program into an
+        /// existing module. Shared maps (`functionMap_`, `structTypeMap_`) are kept
+        /// across calls so several units can be lowered into one module; per-unit
+        /// transient state is reset on entry.
+        std::shared_ptr<Module> generateInto(std::shared_ptr<Module> module,
+                                             Compiler::Semantic::TypedProgramNode &program);
+
+        /// \brief The symbol the VM starts executing. Defaults to "main"; the build
+        /// system sets it to the entry package's `main` (e.g. "calc.main$main").
+        void setEntrySymbolName(const std::string &name) { entrySymbolName_ = name; }
+        [[nodiscard]] const std::string &getEntrySymbolName() const { return entrySymbolName_; }
+
         void visit(Compiler::Semantic::TypedProgramNode &node) override;
         void visit(Compiler::Semantic::TypedFunctionDefinitionNode &node) override;
         void visit(Compiler::Semantic::TypedBlockNode &node) override;
@@ -73,6 +85,13 @@ namespace Ryntra::IR {
 
     private:
         IRBuilder builder_;
+
+        // Symbol the VM should start executing ("main" for single-file compiles).
+        std::string entrySymbolName_ = "main";
+
+        // Reset per-unit transient state (current function, allocas, loops, ...)
+        // while preserving the shared function/struct maps.
+        void resetTransientState();
 
         // Last expression value produced by visiting an expression node
         std::shared_ptr<Value> lastValue_;
