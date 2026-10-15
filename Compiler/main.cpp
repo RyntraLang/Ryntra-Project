@@ -1,5 +1,6 @@
 #include "AST/ASTBuilder.h"
 #include "ArgParsing/ArgParsing.h"
+#include "Driver/CompilePipeline.h"
 #include "ErrorHandler/ErrorHandler.h"
 #include "ErrorHandler/LexParseErrorHandler.h"
 #include "ErrorHandler/RuntimeError.h"
@@ -14,157 +15,177 @@
 #include <fstream>
 #include <iostream>
 
+using namespace Ryntra;
+using namespace Ryntra::Compiler;
+
 // #define SHOW_LOG
 
-int main(int argc, char **argv) {
-    using namespace Ryntra::Utility;
-    try {
-        ArgParser argParser(argc, argv);
-        auto emitIR = argParser.flag("--emit-ir");
-        auto emitBytecode = argParser.flag("--emit-bytecode");
-        auto emitAST = argParser.flag("--emit-ast");
-
-        if (!argParser.parse()) {
-            return 1;
+namespace {
+    bool errorHandlerHasErrors() {
+        for (const auto &error : ErrorHandler::getInstance().getErrorObjects()) {
+            if (error.type == kError) {
+                return true;
+            }
         }
+        return false;
+    }
 
-        const auto &positional = argParser.positional();
-        if (positional.empty()) {
-            std::print(std::cerr, "Usage: {} <source-file> [--emit-ast] [--emit-ir] [--emit-bytecode]\n",
-                       argv[0]);
-            return 1;
-        }
-        const std::string &sourcePath = positional.front();
-
-        std::string Source;
-
+    // Compile a single source file (the classic `rync <file>` mode). Diagnostics use
+    // the file's name and the program entry point is `main`.
+    int runSingleFile(const std::string &sourcePath, const bool emitIR, const bool emitBytecode,
+                      const bool emitAST, const bool checkOnly) {
         std::ifstream sourceFile(sourcePath);
-        if (sourceFile.is_open()) {
-            Source = std::string((std::istreambuf_iterator<char>(sourceFile)),
-                                 std::istreambuf_iterator<char>());
-        } else {
+        if (!sourceFile.is_open()) {
             std::print(std::cerr, "Error: cannot open source file '{}'\n", sourcePath);
             return 1;
         }
+        const std::string source((std::istreambuf_iterator<char>(sourceFile)), std::istreambuf_iterator<char>());
 
         // Attribute every diagnostic to the file being compiled and include the
         // file name in the printed output (e.g. `[Error]: "main.rynt": (1:2) ...`).
-        Ryntra::Compiler::ErrorHandler::getInstance().setShowFileNames(true);
-        Ryntra::Compiler::ErrorHandler::getInstance().setCurrentFile(
-            std::filesystem::path(sourcePath).filename().string());
+        ErrorHandler::getInstance().setShowFileNames(true);
+        ErrorHandler::getInstance().setCurrentFile(std::filesystem::path(sourcePath).filename().string());
 
-#ifdef SHOW_LOG
-        std::cout << "Source: " << std::endl;
-        std::cout << Source << std::endl;
-        std::cout << "====================================================" << std::endl;
-#endif // #ifdef SHOW_LOG
-
-        antlr4::ANTLRInputStream input(Source);
+        antlr4::ANTLRInputStream input(source);
         Ryntra::antlr::RyntraLexer lexer(&input);
         antlr4::CommonTokenStream tokens(&lexer);
         tokens.fill();
         Ryntra::antlr::RyntraParser parser(&tokens);
-
         parser.removeErrorListeners();
-        parser.addErrorListener(new Ryntra::Compiler::LexParseErrorHandler());
+        parser.addErrorListener(new LexParseErrorHandler());
 
         auto tree = parser.program();
-        // std::cout << std::endl;
 
-#ifdef SHOW_LOG
-        std::cout << tree->toStringTree(&parser) << std::endl;
-#endif // #ifdef SHOW_LOG
-
-        bool hasParseError = false;
-        for (const auto &error : Ryntra::Compiler::ErrorHandler::getInstance().getErrorObjects()) {
-            if (error.type == Ryntra::Compiler::kError) {
-                hasParseError = true;
-                break;
-            }
+        if (errorHandlerHasErrors()) {
+            ErrorHandler::getInstance().print();
+            return 1;
         }
 
-        if (hasParseError) {
-            Ryntra::Compiler::ErrorHandler::getInstance().print();
-            // std::cout << "Semantic Analysis Failed." << std::endl;
-            return 0;
-        }
-
-        Ryntra::Compiler::ASTBuilder builder;
+        ASTBuilder builder;
         auto ast = builder.visitProgram(tree);
-
-#ifdef SHOW_LOG
-        std::cout << std::endl;
-        std::cout << ast->toString() << std::endl;
-        std::cout << std::endl;
-        std::cout << "====================================================" << std::endl;
-        std::cout << std::endl;
-#endif // #ifdef SHOW_LOG
 
         if (emitAST) {
             std::cout << ast->toString() << std::endl;
             return 0;
         }
 
-        Ryntra::Compiler::Semantic::SemanticAnalyzer analyzer;
-        analyzer.setCompilationMode(Ryntra::Compiler::CompilationMode::CLI);
+        Semantic::SemanticAnalyzer analyzer;
+        analyzer.setCompilationMode(CompilationMode::CLI);
         analyzer.analyze(ast);
 
-        Ryntra::Compiler::ErrorHandler::getInstance().print();
-        bool hasError = false;
-        for (const auto &error : Ryntra::Compiler::ErrorHandler::getInstance().getErrorObjects()) {
-            if (error.type == Ryntra::Compiler::kError) {
-                hasError = true;
-                break;
-            }
+        ErrorHandler::getInstance().print();
+        if (errorHandlerHasErrors()) {
+            return 1;
         }
 
-        if (hasError) {
-            // std::cout << "Semantic Analysis Failed." << std::endl;
-        } else {
-            if (auto typedAST = analyzer.getTypedAST()) {
-#ifdef SHOW_LOG
-                std::cout << "Typed AST:" << std::endl;
-                typedAST->dump();
-                std::cout << std::endl;
-                std::cout << "====================================================" << std::endl;
-#endif // #ifdef SHOW_LOG
-
-                Ryntra::IR::IRGenerator irGen;
-                auto module = irGen.generate(*typedAST, "HelloWorld");
-
-#ifdef SHOW_LOG
-                std::cout << module->toString() << std::endl;
-                std::cout << "====================================================" << std::endl;
-#endif // #ifdef SHOW_LOG
-
-                if (emitIR) {
-                    std::cout << module->toString() << std::endl;
-                    return 0;
-                }
-
-                Ryntra::VM::BytecodeGenerator bcGen;
-                auto bytecode = bcGen.generate(module);
-
-                if (emitBytecode) {
-                    Ryntra::VM::VirtualMachine dumpVM;
-                    dumpVM.load(bytecode, bcGen.getConstantPool());
-                    dumpVM.disassemble();
-                    return 0;
-                }
-
-                Ryntra::VM::VirtualMachine vm;
-                vm.load(bytecode, bcGen.getConstantPool());
-                auto result = vm.execute("main");
-
-#ifdef SHOW_LOG
-                vm.disassemble();
-#endif // #ifdef SHOW_LOG
-            }
+        auto typedAST = analyzer.getTypedAST();
+        if (!typedAST) {
+            return 1;
         }
 
+        IR::IRGenerator irGen;
+        auto module = irGen.generate(*typedAST, "HelloWorld");
+
+        if (emitIR) {
+            std::cout << module->toString() << std::endl;
+            return 0;
+        }
+
+        VM::BytecodeGenerator bcGen;
+        auto bytecode = bcGen.generate(module);
+
+        if (emitBytecode) {
+            VM::VirtualMachine dumpVM;
+            dumpVM.load(bytecode, bcGen.getConstantPool());
+            dumpVM.disassemble();
+            return 0;
+        }
+
+        if (checkOnly) {
+            return 0;
+        }
+
+        VM::VirtualMachine vm;
+        vm.load(bytecode, bcGen.getConstantPool());
+        vm.execute("main");
         return 0;
-    } catch (const Ryntra::Compiler::RuntimeErrorException &e) {
-        Ryntra::Compiler::ErrorHandler &handler = Ryntra::Compiler::ErrorHandler::getInstance();
+    }
+
+    // Compile a whole program from its entry file, resolving imports under
+    // `packageRoot` (multi-file / package mode). The entry point is the entry
+    // package's `main` (e.g. `calc.main$main`).
+    int runMultiFile(const std::filesystem::path &entryFile, const std::filesystem::path &packageRoot,
+                     const bool emitIR, const bool emitBytecode, const bool checkOnly) {
+        Driver::CompileResult result = Driver::compileProgram(entryFile, packageRoot, "module");
+
+        ErrorHandler::getInstance().print();
+        if (!result.ok) {
+            return 1;
+        }
+
+        if (emitIR) {
+            std::cout << result.module->toString() << std::endl;
+            return 0;
+        }
+        if (emitBytecode) {
+            VM::VirtualMachine dumpVM;
+            dumpVM.load(result.bytecode, result.constantPool);
+            dumpVM.disassemble();
+            return 0;
+        }
+        if (checkOnly) {
+            return 0;
+        }
+
+        VM::VirtualMachine vm;
+        vm.load(result.bytecode, result.constantPool);
+        vm.execute(result.entrySymbol);
+        return 0;
+    }
+} // namespace
+
+int main(int argc, char **argv) {
+    using namespace Ryntra::Utility;
+    try {
+        ArgParser argParser(argc, argv);
+        auto packageRootOpt = argParser.option<std::string>("--package-root");
+        auto entryOpt = argParser.option<std::string>("--entry");
+        auto emitIR = argParser.flag("--emit-ir");
+        auto emitBytecode = argParser.flag("--emit-bytecode");
+        auto emitAST = argParser.flag("--emit-ast");
+        auto checkOnly = argParser.flag("--check");
+
+        if (!argParser.parse()) {
+            return 1;
+        }
+
+        const auto &positional = argParser.positional();
+        const bool multiFile = entryOpt.isSet() || packageRootOpt.isSet();
+
+        if (multiFile) {
+            const std::string entry = entryOpt.value_or(positional.empty() ? std::string{} : positional.front());
+            if (entry.empty()) {
+                std::print(std::cerr, "Error: --entry <file> is required for multi-file compilation.\n");
+                return 1;
+            }
+            const std::filesystem::path entryFile = entry;
+            const std::filesystem::path packageRoot = packageRootOpt.isSet()
+                                                           ? std::filesystem::path(packageRootOpt.get())
+                                                           : entryFile.parent_path();
+            return runMultiFile(entryFile, packageRoot, emitIR.get(), emitBytecode.get(), checkOnly.get());
+        }
+
+        if (positional.empty()) {
+            std::print(std::cerr,
+                       "Usage: {} <source-file> [--emit-ast] [--emit-ir] [--emit-bytecode] [--check]\n"
+                       "       {} --package-root <dir> --entry <file> [--emit-ir] [--emit-bytecode] [--check]\n",
+                       argv[0], argv[0]);
+            return 1;
+        }
+
+        return runSingleFile(positional.front(), emitIR.get(), emitBytecode.get(), emitAST.get(), checkOnly.get());
+    } catch (const RuntimeErrorException &e) {
+        ErrorHandler &handler = ErrorHandler::getInstance();
         handler.makeError(e.getDescription(), e.getRange());
         for (const auto &frame : e.getTrace()) {
             handler.makeHint("Call from '" + frame.callerName + "'", frame.callSite);

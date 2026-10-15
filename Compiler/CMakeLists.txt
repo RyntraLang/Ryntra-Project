@@ -51,6 +51,13 @@ set(SEMANTIC_SOURCE
         Semantic/Sema/RefAndPtr.cpp
 )
 
+# The import-graph resolver lives with the front-end: it only needs the parser and
+# the semantic program model, and lets `rync` compile a multi-file program alone.
+set(DRIVER_FRONTEND_SOURCE
+        Driver/ImportGraph.cpp
+        Driver/ImportGraph.h
+)
+
 set(IR_SOURCE
         IR/IRBuilder.h
         IR/IRBuilder.cpp
@@ -90,6 +97,7 @@ add_library(RyntraFrontend STATIC
         ${ANTLR_SOURCE}
         ${AST_SOURCE}
         ${SEMANTIC_SOURCE}
+        ${DRIVER_FRONTEND_SOURCE}
 )
 
 add_dependencies(RyntraFrontend GenerateAllNodesVisitor)
@@ -108,6 +116,8 @@ target_include_directories(RyntraFrontend PUBLIC
 add_library(RyntraBackend STATIC
         ${IR_SOURCE}
         ${VM_SOURCE}
+        Driver/CompilePipeline.cpp
+        Driver/CompilePipeline.h
 )
 
 target_link_libraries(RyntraBackend PUBLIC RyntraFrontend RyntraUtility)
@@ -117,6 +127,14 @@ add_executable(RyntraCompiler
 )
 
 target_link_libraries(RyntraCompiler PRIVATE RyntraBackend)
+
+# rync links the ANTLR shared runtime; place it next to the executable so rync can
+# be launched directly (e.g. as a subprocess from riko).
+add_custom_command(TARGET RyntraCompiler POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:antlr4_shared>
+                $<TARGET_FILE_DIR:RyntraCompiler>
+)
 
 set_target_properties(RyntraCompiler PROPERTIES
         OUTPUT_NAME "rync"
