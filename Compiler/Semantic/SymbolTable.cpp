@@ -162,13 +162,13 @@ namespace Ryntra::Compiler::Semantic {
 
     void SymbolTable::definePackage(const std::string &fullName, const std::shared_ptr<Scope> &scope,
                                     const SourceRange &range) {
+        // Package names live in their own namespace (the analyser's packageScopes_)
+        // and must NOT participate in ordinary identifier resolution — otherwise a
+        // package named `main` would shadow a top-level function named `main` (and
+        // vice versa). They are only recorded for tooling via `definitions`.
         auto global = getGlobalScope();
-        if (!global) {
-            return;
-        }
-        auto packageSymbol = std::make_shared<PackageSymbol>(fullName, scope);
-        global->symbols[fullName] = packageSymbol;
-        definitions.push_back({fullName, range, std::move(packageSymbol), true, global->range});
+        definitions.push_back({fullName, range, std::make_shared<PackageSymbol>(fullName, scope), true,
+                               global ? global->range : SourceRange{}});
     }
 
     void SymbolTable::exitScope() {
